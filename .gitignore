@@ -1,0 +1,23 @@
+# Environment variables (SENSITIVE DATA - DO NOT REMOVE)
+.env
+
+# Python cache and virtual environments
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local runtime data (Contains private client data)
+data/
+logs/
+
+# OS/IDE-skräp
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python packaging (om du någon gång bygger/paketerar)
+build/
+dist/
+*.egg-info/

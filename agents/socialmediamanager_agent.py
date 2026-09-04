@@ -1,0 +1,82 @@
+from typing import Any, Dict
+
+from core.logger import get_logger
+from services.ollama_service import OllamaService
+from services.prompt_loader import PromptLoader
+
+logger = get_logger(__name__)
+
+
+class SocialMediaManagerAgent:
+    """
+    SocialMediaManager handles social media strategy, publishing schedules,
+    captions, hashtags, community engagement, and performance/competitor analytics.
+    """
+
+    def __init__(self):
+        self.llm = OllamaService()
+        self.prompt_loader = PromptLoader()
+        # Pre-load the system prompt during initialization
+        self.system_prompt = self.prompt_loader.load("socialmediamanager_agent.txt")
+        logger.info("SocialMediaManager initialized successfully.")
+
+    def handle(self, action: str, payload: Dict[str, Any]) -> str:
+        """
+        Main entry point matching the Agent protocol.
+        
+        Args:
+            action: The action to perform (e.g., "execute").
+            payload: Dictionary containing parameters, must include "message".
+        
+        Returns:
+            The generated response from the local LLM.
+        """
+        logger.info("SocialMediaManager received action '%s'", action)
+        
+        user_message = payload.get("message", "").strip()
+        if not user_message:
+            logger.warning("Empty message received in SocialMediaManager payload.")
+            return "SocialMediaManager received an empty message."
+
+        # Format the prompt for the LLM using our pre-loaded system rules
+        full_prompt = f"""
+System Instructions:
+{self.system_prompt}
+
+User Request:
+"{user_message}"
+
+Provide your professional response:
+"""
+        
+        logger.debug("Sending prompt to Ollama via OllamaService...")
+        response = self.llm.chat(full_prompt)
+        
+        if not response:
+            logger.error("Failed to get response from OllamaService.")
+            return "Error: SocialMediaManager was unable to generate a response."
+
+        logger.info("SocialMediaManager successfully processed the request.")
+        return response
+
+
+if __name__ == "__main__":
+    # Simple integration test to run the agent standalone
+    print("=== TESTING SOCIAL MEDIA MANAGER ===")
+    
+    # Ensure PYTHONPATH is set in your terminal when testing
+    agent = SocialMediaManager()
+    
+    # Test case demonstrating a workflow where analytical data has been provided as context
+    test_payload = {
+        "message": (
+            "För 'The AI Duck' (engelska): Jag har analyserat en konkurrent som gör korta Reels "
+            "om hur spionprogram fungerar, och de får 100k+ visningar per video genom att starta med en stark "
+            "hook som 'This is how your phone is watching you right now'. "
+            "Kan du analysera varför detta fungerar och ge mig 3 liknande hooks samt en publiceringsplan?"
+        )
+    }
+    
+    reply = agent.handle(action="execute", payload=test_payload)
+    print("\nResponse from Agent:")
+    print(reply)
