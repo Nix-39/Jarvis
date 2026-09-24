@@ -29,12 +29,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from core.config import Config
+
 logger = logging.getLogger(__name__)
 
-# Default path is relative to wherever the process is started from.
-# In production, prefer: MemoryService(Config.DATA_DIR / "jarvis_memory.db")
-DEFAULT_DB_PATH = Path("data") / "jarvis_memory.db"
+DEFAULT_DB_PATH = Config.DATA_DIR / "jarvis_memory.db"
 DEFAULT_SESSION_ID = "default"
+DEFAULT_CONTEXT_LIMIT = 8  # last N messages (~4 exchanges) used as conversation context in agent prompts
 
 
 def _utc_now_iso() -> str:
@@ -54,6 +55,21 @@ class Message:
     context: Optional[str]
     metadata: dict[str, Any]
     created_at: str
+
+
+def format_conversation_history(messages: list[Message]) -> str:
+    """
+    Format a list of Messages into a readable transcript block, suitable
+    for inserting into an agent's prompt as short-term conversation context.
+    """
+    if not messages:
+        return "(Ingen tidigare konversation.)"
+
+    lines = []
+    for msg in messages:
+        speaker = "User" if msg.role == "user" else "Agent"
+        lines.append(f"{speaker}: {msg.content}")
+    return "\n".join(lines)
 
 
 class MemoryServiceError(Exception):

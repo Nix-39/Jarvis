@@ -12,6 +12,7 @@ from typing import Dict, Final, Optional
 from core.logger import get_logger
 from core.planner import Agent, Planner, PlannerResult
 from core.router import Router
+from services.memory_service import MemoryService
 from services.ollama_service import OllamaService
 from services.prompt_loader import PromptLoader
 
@@ -51,17 +52,20 @@ class JarvisOrchestrator:
         self,
         ollama_service: Optional[OllamaService] = None,
         prompt_loader: Optional[PromptLoader] = None,
+        memory_service: Optional[MemoryService] = None,
     ) -> None:
         """
         Initialize the Orchestrator with infrastructure services, router, and registered agents.
 
         :param ollama_service: Optional OllamaService instance. Self-initialized if None.
         :param prompt_loader: Optional PromptLoader instance. Self-initialized if None.
+        :param memory_service: Optional MemoryService instance. Self-initialized if None.
         """
         logger.info("Initializing Jarvis Orchestrator pipeline...")
 
         self.ollama_service = ollama_service or OllamaService()
         self.prompt_loader = prompt_loader or PromptLoader()
+        self.memory_service = memory_service or MemoryService()
 
         # 1. Initialize Router with shared infrastructure services
         self.router = Router(
@@ -71,13 +75,13 @@ class JarvisOrchestrator:
 
         # 2. Instantiate and register all 7 specialist agents matching exact snapshot naming
         self.agent_registry: Dict[str, Agent] = {
-            "business_agent": BusinessAgent(),
-            "career_agent": CareerAgent(),
-            "webdeveloper_agent": WebDeveloperAgent(),
-            "education_agent": EducationAgent(),
-            "general_agent": GeneralAgent(),
-            "socialmediamanager_agent": SocialMediaManagerAgent(),
-            "contentcreator_agent": ContentCreatorAgent(),
+            "business_agent": BusinessAgent(memory_service=self.memory_service),
+            "career_agent": CareerAgent(memory_service=self.memory_service),
+            "webdeveloper_agent": WebDeveloperAgent(memory_service=self.memory_service),
+            "education_agent": EducationAgent(memory_service=self.memory_service),
+            "general_agent": GeneralAgent(memory_service=self.memory_service),
+            "socialmediamanager_agent": SocialMediaManagerAgent(memory_service=self.memory_service),
+            "contentcreator_agent": ContentCreatorAgent(memory_service=self.memory_service),
         }
 
         # 3. Initialize Planner with the validated agent registry

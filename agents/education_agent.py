@@ -1,6 +1,12 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from core.logger import get_logger
+from services.memory_service import (
+    DEFAULT_CONTEXT_LIMIT,
+    DEFAULT_SESSION_ID,
+    MemoryService,
+    format_conversation_history,
+)
 from services.ollama_service import OllamaService
 from services.prompt_loader import PromptLoader
 
@@ -13,9 +19,12 @@ class EducationAgent:
     study plans, practical labs, and skill assessments.
     """
 
-    def __init__(self):
+    AGENT_ID: str = "education_agent"
+
+    def __init__(self, memory_service: Optional[MemoryService] = None):
         self.llm = OllamaService()
         self.prompt_loader = PromptLoader()
+        self.memory = memory_service or MemoryService()
         # Pre-load the system prompt during initialization
         self.system_prompt = self.prompt_loader.load("education_agent.txt")
         logger.info("EducationAgent initialized successfully.")
@@ -39,9 +48,23 @@ class EducationAgent:
             return "EducationAgent received an empty message."
 
         # Format the prompt for the LLM using our pre-loaded system rules
+        history = self.memory.get_session_messages(
+            session_id=DEFAULT_SESSION_ID,
+            agent_id=self.AGENT_ID,
+            limit=DEFAULT_CONTEXT_LIMIT,
+        )
+        conversation_context = format_conversation_history(history)
+
+        self.memory.save_message(
+            DEFAULT_SESSION_ID, role="user", content=user_message, agent_id=self.AGENT_ID
+        )
+
         full_prompt = f"""
 System Instructions:
 {self.system_prompt}
+
+Tidigare konversation:
+{conversation_context}
 
 User Request:
 "{user_message}"
@@ -55,6 +78,10 @@ Provide your professional educational response:
         if not response:
             logger.error("Failed to get response from OllamaService.")
             return "Error: EducationAgent was unable to generate a response."
+
+        self.memory.save_message(
+            DEFAULT_SESSION_ID, role="agent", content=response, agent_id=self.AGENT_ID
+        )
 
         logger.info("EducationAgent successfully processed the request.")
         return response
