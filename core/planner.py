@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 from dataclasses import dataclass, field
 
+from core.config import Config
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -42,7 +43,7 @@ class ExecutionStep:
     payload: Dict[str, Any]
     depends_on: List[int] = field(default_factory=list)  # Steps that must complete first
     max_retries: int = 2         # Standardized to 2 for operational reliability
-    timeout_seconds: int = 30    # Prevents hangs in local systems
+    timeout_seconds: int = Config.AGENT_TIMEOUT_SECONDS  # Prevents hangs; sized for local LLMs
 
 
 @dataclass(frozen=True)

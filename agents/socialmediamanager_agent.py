@@ -9,6 +9,7 @@ from services.memory_service import (
 )
 from services.ollama_service import OllamaService
 from services.prompt_loader import PromptLoader
+from services.vector_service import VectorService
 
 logger = get_logger(__name__)
 
@@ -21,10 +22,17 @@ class SocialMediaManagerAgent:
 
     AGENT_ID: str = "socialmediamanager_agent"
 
-    def __init__(self, memory_service: Optional[MemoryService] = None):
+    def __init__(
+        self,
+        memory_service: Optional[MemoryService] = None,
+        vector_service: Optional[VectorService] = None,
+    ):
         self.llm = OllamaService()
         self.prompt_loader = PromptLoader()
         self.memory = memory_service or MemoryService()
+        self.vector = vector_service or VectorService(
+            memory_service=self.memory, ollama_service=self.llm
+        )
         # Pre-load the system prompt during initialization
         self.system_prompt = self.prompt_loader.load("socialmediamanager_agent.txt")
         logger.info("SocialMediaManager initialized successfully.")
@@ -55,6 +63,12 @@ class SocialMediaManagerAgent:
         )
         conversation_context = format_conversation_history(history)
 
+        # Long-term memory: relevant older messages (all agents) + documents.
+        # Fetched before saving the current message so it can't match itself.
+        background_context = self.vector.build_context(
+            user_message, exclude_message_ids=[msg.id for msg in history]
+        )
+
         self.memory.save_message(
             DEFAULT_SESSION_ID, role="user", content=user_message, agent_id=self.AGENT_ID
         )
@@ -62,6 +76,9 @@ class SocialMediaManagerAgent:
         full_prompt = f"""
 System Instructions:
 {self.system_prompt}
+
+Relevant bakgrund (från långtidsminnet – använd bara om det är relevant för frågan):
+{background_context}
 
 Tidigare konversation:
 {conversation_context}

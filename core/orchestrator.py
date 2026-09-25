@@ -15,6 +15,7 @@ from core.router import Router
 from services.memory_service import MemoryService
 from services.ollama_service import OllamaService
 from services.prompt_loader import PromptLoader
+from services.vector_service import VectorService
 
 from agents.business_agent import BusinessAgent
 from agents.career_agent import CareerAgent
@@ -53,6 +54,7 @@ class JarvisOrchestrator:
         ollama_service: Optional[OllamaService] = None,
         prompt_loader: Optional[PromptLoader] = None,
         memory_service: Optional[MemoryService] = None,
+        vector_service: Optional[VectorService] = None,
     ) -> None:
         """
         Initialize the Orchestrator with infrastructure services, router, and registered agents.
@@ -60,12 +62,17 @@ class JarvisOrchestrator:
         :param ollama_service: Optional OllamaService instance. Self-initialized if None.
         :param prompt_loader: Optional PromptLoader instance. Self-initialized if None.
         :param memory_service: Optional MemoryService instance. Self-initialized if None.
+        :param vector_service: Optional VectorService instance. Self-initialized if None.
         """
         logger.info("Initializing Jarvis Orchestrator pipeline...")
 
         self.ollama_service = ollama_service or OllamaService()
         self.prompt_loader = prompt_loader or PromptLoader()
         self.memory_service = memory_service or MemoryService()
+        self.vector_service = vector_service or VectorService(
+            memory_service=self.memory_service,
+            ollama_service=self.ollama_service,
+        )
 
         # 1. Initialize Router with shared infrastructure services
         self.router = Router(
@@ -75,17 +82,36 @@ class JarvisOrchestrator:
 
         # 2. Instantiate and register all 7 specialist agents matching exact snapshot naming
         self.agent_registry: Dict[str, Agent] = {
-            "business_agent": BusinessAgent(memory_service=self.memory_service),
-            "career_agent": CareerAgent(memory_service=self.memory_service),
-            "webdeveloper_agent": WebDeveloperAgent(memory_service=self.memory_service),
-            "education_agent": EducationAgent(memory_service=self.memory_service),
-            "general_agent": GeneralAgent(memory_service=self.memory_service),
-            "socialmediamanager_agent": SocialMediaManagerAgent(memory_service=self.memory_service),
-            "contentcreator_agent": ContentCreatorAgent(memory_service=self.memory_service),
+            "business_agent": BusinessAgent(
+                memory_service=self.memory_service, vector_service=self.vector_service
+            ),
+            "career_agent": CareerAgent(
+                memory_service=self.memory_service, vector_service=self.vector_service
+            ),
+            "webdeveloper_agent": WebDeveloperAgent(
+                memory_service=self.memory_service, vector_service=self.vector_service
+            ),
+            "education_agent": EducationAgent(
+                memory_service=self.memory_service, vector_service=self.vector_service
+            ),
+            "general_agent": GeneralAgent(
+                memory_service=self.memory_service, vector_service=self.vector_service
+            ),
+            "socialmediamanager_agent": SocialMediaManagerAgent(
+                memory_service=self.memory_service, vector_service=self.vector_service
+            ),
+            "contentcreator_agent": ContentCreatorAgent(
+                memory_service=self.memory_service, vector_service=self.vector_service
+            ),
         }
 
         # 3. Initialize Planner with the validated agent registry
         self.planner = Planner(agent_registry=self.agent_registry)
+
+        # 4. Bring long-term memory up to date before handling requests.
+        #    Runs outside the Planner's per-step timeout, so bulk indexing of
+        #    new documents happens here instead of during a user request.
+        self.vector_service.sync_all()
 
         logger.info(
             "Jarvis Orchestrator fully online | registered_agents=%s",
@@ -126,20 +152,39 @@ class JarvisOrchestrator:
 
 
 if __name__ == "__main__":
-    # Integration test verifying the end-to-end orchestration pipeline
-    print("=== JARVIS SYSTEM INTEGRATION TEST ===")
+    # Interactive chat with Jarvis:  python -m core.orchestrator [--verbose]
+    import logging
+    import sys
 
+    EXIT_COMMANDS = {"exit", "quit", "avsluta", "hejdå", "hej då"}
+
+    # Keep the terminal readable: console shows warnings/errors only unless --verbose.
+    # Full INFO logs are still written to logs/jarvis.log.
+    if "--verbose" not in sys.argv:
+        for handler in logging.getLogger("jarvis").handlers:
+            if type(handler) is logging.StreamHandler:
+                handler.setLevel(logging.WARNING)
+
+    print("=== JARVIS ===")
+    print("Startar och synkar långtidsminnet...")
     orchestrator = JarvisOrchestrator()
+    print("Redo. Skriv din fråga ('exit' eller Ctrl+C avslutar).")
 
-    test_query = "Hur skapar jag en prisstrategi för min bilverkstadsagent i VerkstadsFlow?"
-    print(f"\nUser > {test_query}")
+    while True:
+        try:
+            user_input = input("\nDu > ").strip()
+            if not user_input:
+                continue
+            if user_input.lower() in EXIT_COMMANDS:
+                break
 
-    res = orchestrator.process_query(test_query)
+            result = orchestrator.process_query(user_input)
+            print(
+                f"\nJarvis [{result.agent_used} · {result.execution_time_seconds:.1f}s] >\n"
+                f"{result.final_response}"
+            )
+        except (KeyboardInterrupt, EOFError):
+            print()
+            break
 
-    print("\n=== EXECUTION RESULT ===")
-    print(f"Plan ID: {res.plan_id}")
-    print(f"Agent Used: {res.agent_used}")
-    print(f"Success: {res.success}")
-    print(f"Execution Time: {res.execution_time_seconds:.2f}s")
-    print(f"Response:\n{res.final_response}")
-    print("=" * 50)
+    print("Hej då!")

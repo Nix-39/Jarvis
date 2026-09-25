@@ -33,6 +33,23 @@ class Config:
     # ------------------------------------------------------
     OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+    OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:0.6b")
+    # Reasoning ("thinking") mode for models that support it, e.g. qwen3.
+    # Off by default: much faster replies; turn on for harder reasoning tasks.
+    OLLAMA_THINK = os.getenv("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
+
+    # ------------------------------------------------------
+    # Execution limits
+    # ------------------------------------------------------
+    # Max seconds one agent step may run before the Planner retries it.
+    AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", "120"))
+
+    # ------------------------------------------------------
+    # Long-term memory (VectorService)
+    # ------------------------------------------------------
+    # Cosine distance cutoff for search hits (0 = identical, 2 = opposite).
+    # Lower = stricter. Tune with: python -m services.vector_service --search "..."
+    VECTOR_MAX_DISTANCE = float(os.getenv("VECTOR_MAX_DISTANCE", "0.55"))
 
     # ------------------------------------------------------
     # System logging
@@ -48,6 +65,8 @@ class Config:
     PROMPTS_DIR = BASE_DIR / "prompts"
     AGENTS_DIR = BASE_DIR / "agents"
     SERVICES_DIR = BASE_DIR / "services"
+    DOCUMENTS_DIR = DATA_DIR / "documents"
+    VECTOR_STORE_DIR = DATA_DIR / "vector_store"
 
     @classmethod
     def initialize_system(cls):
@@ -58,7 +77,9 @@ class Config:
             cls.TEMPLATES_DIR,
             cls.PROMPTS_DIR,
             cls.AGENTS_DIR,
-            cls.SERVICES_DIR
+            cls.SERVICES_DIR,
+            cls.DOCUMENTS_DIR,
+            cls.VECTOR_STORE_DIR,
         ]
         
         for directory in system_dirs:

@@ -21,7 +21,6 @@ same as OllamaService and PromptLoader (Agent -> MemoryService -> SQLite).
 from __future__ import annotations
 
 import json
-import logging
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -30,8 +29,9 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 from core.config import Config
+from core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 DEFAULT_DB_PATH = Config.DATA_DIR / "jarvis_memory.db"
 DEFAULT_SESSION_ID = "default"
@@ -303,19 +303,54 @@ class MemoryService:
             query = f"SELECT * FROM messages WHERE {where_clause} ORDER BY id ASC"
             rows = conn.execute(query, params).fetchall()
 
-        return [
-            Message(
-                id=row["id"],
-                session_id=row["session_id"],
-                role=row["role"],
-                content=row["content"],
-                agent_id=row["agent_id"],
-                context=row["context"],
-                metadata=json.loads(row["metadata"]),
-                created_at=row["created_at"],
-            )
-            for row in rows
-        ]
+        return [self._row_to_message(row) for row in rows]
+
+    def get_messages_after(
+        self, after_id: int = 0, limit: Optional[int] = None
+    ) -> list[Message]:
+        """
+        Return messages across ALL sessions with an id greater than `after_id`,
+        oldest first. Used by VectorService to sync new messages into
+        long-term memory incrementally.
+        """
+        conn = self._get_connection()
+        query = "SELECT * FROM messages WHERE id > ? ORDER BY id ASC"
+        params: list[Any] = [after_id]
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_message(row) for row in rows]
+
+    def get_message_ids(self) -> set[int]:
+        """Return the ids of all stored messages (used to detect deletions)."""
+        conn = self._get_connection()
+        return {row["id"] for row in conn.execute("SELECT id FROM messages")}
+
+    def count_messages(self, max_id: Optional[int] = None) -> int:
+        """Count stored messages, optionally only those with id <= max_id."""
+        conn = self._get_connection()
+        if max_id is None:
+            row = conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM messages WHERE id <= ?", (max_id,)
+            ).fetchone()
+        return int(row["n"])
+
+    @staticmethod
+    def _row_to_message(row: sqlite3.Row) -> Message:
+        """Convert a database row into an immutable Message."""
+        return Message(
+            id=row["id"],
+            session_id=row["session_id"],
+            role=row["role"],
+            content=row["content"],
+            agent_id=row["agent_id"],
+            context=row["context"],
+            metadata=json.loads(row["metadata"]),
+            created_at=row["created_at"],
+        )
 
     # ------------------------------------------------------------------
     # Key-value state (namespace keys yourself, e.g. "business_agent.active_client")
@@ -363,9 +398,11 @@ class MemoryService:
 if __name__ == "__main__":
     # Smoke test - verifies the service end-to-end, same spirit as the
     # existing `python -m core.orchestrator` verification pattern.
-    logging.basicConfig(level=logging.INFO)
+    # Use a throwaway database so the smoke test never pollutes real memory.
+    import tempfile
 
-    memory = MemoryService()
+    _tmp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    memory = MemoryService(Path(_tmp_dir.name) / "smoke_test.db")
 
     session_id = memory.create_session(DEFAULT_SESSION_ID)
     print(f"Session: {memory.get_session(session_id)}")
@@ -399,4 +436,5 @@ if __name__ == "__main__":
     print(f"Missing key default: {memory.get_state('nonexistent.key', default='n/a')}")
 
     memory.close()
-    print("\nSmoke test complete.")
+    _tmp_dir.cleanup()
+    print("\nSmoke test complete (temporary database, real memory untouched).")
