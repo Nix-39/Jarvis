@@ -1,5 +1,5 @@
 # PROJECT SNAPSHOT
-**Last updated:** 2026-08-01
+**Last updated:** 2026-09-25
 
 ---
 
@@ -126,8 +126,10 @@ Dedicated agents and services will gradually automate these areas.
 | CPU | AMD Ryzen 9 3900X |
 | RAM | 32 GB |
 | GPU | NVIDIA RTX 3060 12 GB |
-| Local LLM | llama3.1:8b |
+| Local LLM (chat) | qwen3:8b (thinking off by default) |
+| Embedding model | qwen3-embedding:0.6b |
 | Ollama | http://localhost:11434 |
+| Vector DB | ChromaDB (local, telemetry off) |
 | Python | 3.13.x |
 
 Development language
@@ -171,6 +173,8 @@ Verified infrastructure should remain stable unless a clear architectural improv
 3. **Orchestrator Scope:** Orchestrator acts as the sole system entry point and owns the explicit mapping between **Domain Categories** and **Internal Agent IDs**.
 4. **Planner Scope:** Planner works exclusively with **Internal Agent IDs** and coordinates thread-safe execution, timeouts, and retries using the `Agent` protocol interface (`handle`).
 5. **Separation of Concerns:** Core performs orchestration only. Agents contain domain-specific business logic only. Services handle infrastructure and external integrations only. Core and Agents never communicate directly with external systems.
+6. **Memory Source of Truth:** SQLite (MemoryService) is the single source of truth for conversations. The ChromaDB vector index (VectorService) is derived data, kept in sync by a self-healing sync and always rebuildable.
+7. **Fail-Soft Optional Features:** Long-term memory must never break an agent reply. On failure, agents answer without background context.
 
 Dependency direction
 
@@ -211,6 +215,21 @@ To prevent API hallucination, all components must strictly interface with these 
   `load(filename: str) -> str`
 * **`services.ollama_service.OllamaService`**
   `chat(prompt: str) -> str`
+  `embed(texts: List[str]) -> List[List[float]]`
+* **`services.memory_service.MemoryService`**
+  `create_session(session_id: str = "default") -> str`
+  `get_session(session_id: str = "default") -> Optional[dict]`
+  `save_message(session_id, role, content, agent_id=None, context=None, metadata=None) -> int`
+  `get_session_messages(session_id="default", agent_id=None, context=None, limit=None) -> list[Message]`
+  `get_messages_after(after_id: int = 0, limit=None) -> list[Message]`
+  `get_message_ids() -> set[int]`, `count_messages(max_id=None) -> int`
+  `set_state(key: str, value: Any) -> None`, `get_state(key: str, default=None) -> Any`
+* **`services.vector_service.VectorService`**
+  `build_context(query: str, exclude_message_ids=(), top_k=3) -> str`
+  `search_conversations(query, top_k=3, exclude_message_ids=()) -> list[SearchHit]`
+  `search_documents(query, top_k=3, category=None) -> list[SearchHit]`
+  `sync_all(time_budget=None, blocking=True) -> dict[str, int]`
+  `rebuild_index() -> dict[str, int]`, `stats() -> dict`
 * **`core.router.Router`**
   `classify_intent(user_input: str) -> str`
 * **`core.planner.Planner`**
@@ -229,7 +248,8 @@ To prevent API hallucination, all components must strictly interface with these 
 - No hardcoded credentials.
 - Secrets stored in `.env`.
 - Static configuration belongs in `config.py`.
-- Centralized logging with correlation IDs.
+- Centralized logging with plan IDs for tracing.
+- Local-first privacy: no telemetry, private runtime data in `data/` is gitignored.
 - Fail-Fast validation.
 - Least Privilege.
 - Traceability.
@@ -281,9 +301,12 @@ Mandatory rules
 ```
 C:\jarvis
 
-.env
+.env                (gitignored)
+.env.example
 .gitignore
+jarvis.bat          (launcher, uses .venv automatically)
 requirements.txt
+README.md
 SNAPSHOT.md
 
 agents/
@@ -304,8 +327,10 @@ core/
     planner.py
     router.py
 
-data/
-    jarvis_memory.db (planned SQLite database)
+data/               (gitignored)
+    documents/      (personal documents, category subfolders)
+    jarvis_memory.db
+    vector_store/   (ChromaDB)
 
 logs/
     jarvis.log
@@ -322,8 +347,10 @@ prompts/
 
 services/
     __init__.py
+    memory_service.py
     ollama_service.py
     prompt_loader.py
+    vector_service.py
 
 templates/
 ```
@@ -333,29 +360,29 @@ templates/
 # Current Architecture
 
 ```
-                               User
-                                │
-                                ▼
-                       Jarvis Orchestrator
-                                │
-                                ▼
-                             Router
-                                │
-                                ▼
-                             Planner
-                                │
-     ┌──────────┬──────────┬────┴─────┬──────────┬──────────┬──────────┬──────────┐
-     ▼          ▼          ▼          ▼          ▼          ▼          ▼
- Business   Career   WebDeveloper Education   General  SocialMedia  ContentCreator
-   Agent      Agent      Agent        Agent      Agent      Manager        Agent
-     │          │          │            │          │            │            │
-     └──────────┴──────────┴────────────┴──────────┴────────────┴────────────┘
-                                │
-                                ▼
-                             Services
-                    ┌───────────┴───────────┐
-                    ▼                       ▼
-            PromptLoader             OllamaService
+                                       User (chat)
+                                            │
+                                            ▼
+                                   Jarvis Orchestrator
+                                            │
+                        ┌───────────────────┤
+                        ▼                   ▼
+                     Router              Planner
+                    (intent)       (timeouts, retries)
+                                            │
+     ┌────────────┬────────────┬────────────┼────────────┬────────────┬────────────┐
+     ▼            ▼            ▼            ▼            ▼            ▼            ▼
+ Business      Career       WebDev      Education     General    SocialMedia    Content
+     └────────────┴────────────┴────────────┼────────────┴────────────┴────────────┘
+                                            ▼
+                                        Services
+      ┌───────────────────────┬─────────────┴─────────────┬───────────────────────┐
+      ▼                       ▼                           ▼                       ▼
+PromptLoader            OllamaService               MemoryService           VectorService
+                       (chat + embed)               (short-term)             (long-term)
+                                                       SQLite                 ChromaDB
+                                                          │                       ▲
+                                                          └───── synced into ─────┘
 ```
 
 ---
@@ -397,6 +424,20 @@ Location: `core/orchestrator.py`
 Responsibilities: Entry point for Jarvis execution pipeline. Coordinates Router → Category Mapping → Planner → Agent execution. Validates registry lookups (Zero Trust). Supports Dependency Injection.
 Status: Verified & Tested (`python -m core.orchestrator`).
 
+## ✅ MemoryService
+Location: `services/memory_service.py`
+Responsibilities: Short-term memory. SQLite (WAL, one connection per thread), sessions, conversation history, prefixed key-value state (e.g. `business_agent.active_client`). One continuous session ("default"). Agents read their last 8 messages as context.
+Status: Verified.
+
+## ✅ VectorService
+Location: `services/vector_service.py`
+Responsibilities: Long-term memory. ChromaDB with `qwen3-embedding:0.6b`. Semantic search over all conversations (all agents) and personal documents in `data/documents/` (txt, md, pdf, docx; category = subfolder). Self-healing sync (new/deleted messages, new/changed/deleted files), automatic re-index on embedding model change, fail-soft. Retrieval: top 3 messages + top 3 chunks, relevance cutoff `VECTOR_MAX_DISTANCE` (0.55), short-term window excluded. CLI: `python -m services.vector_service [--search TEXT | --rebuild | --stats]`.
+Status: Verified (live test: relevant doc distance ~0.27, unrelated ~0.8).
+
+## ✅ Interactive Chat & Launcher
+`python -m core.orchestrator` runs an interactive chat (`Du >`, `exit` to quit, `--verbose` for console logs). `jarvis.bat` starts it with the project venv, no activation needed.
+Status: Verified.
+
 ## ✅ Specialist Agents (7 Agents)
 Locations:
 - `agents/business_agent.py` (`BusinessAgent`)
@@ -428,6 +469,9 @@ Status: All 7 agents verified.
 | SocialMediaManagerAgent | ✅ |
 | ContentCreatorAgent | ✅ |
 | Orchestrator | ✅ |
+| MemoryService (short-term memory) | ✅ |
+| VectorService (long-term memory + documents) | ✅ |
+| Interactive chat + jarvis.bat | ✅ |
 | Full pipeline (`python -m core.orchestrator`) | ✅ |
 | Logging & Audit Trail | ✅ |
 | Intent classification | ✅ |
@@ -443,13 +487,14 @@ Known Issues: None.
 
 # Current Milestone
 
-First-generation core architecture & complete agent layer finalized and verified.
+Memory layer complete: short-term and long-term memory verified end-to-end. Jarvis is usable day-to-day via the interactive chat.
 
 Completed in this phase:
-- Synchronized Router category outputs and Orchestrator mapping.
-- Standardized API signatures (`PromptLoader.load()`, `OllamaService.chat()`).
-- Established 4-tier naming standards across categories, agent IDs, files, and class names.
-- Successfully verified full end-to-end pipeline via `python -m core.orchestrator`.
+- MemoryService wired into Orchestrator and all 7 agents (shared instance via DI).
+- VectorService: long-term memory over all conversations + personal documents.
+- Switched chat model to qwen3:8b (thinking off by default via `OLLAMA_THINK`); agent timeout raised to 120s (`AGENT_TIMEOUT_SECONDS`) after timeouts caused duplicate retries.
+- Interactive chat mode and `jarvis.bat` launcher; `.env.example` added.
+- Test data removed from the memory database.
 
 ---
 
@@ -461,8 +506,9 @@ services/
 ollama_service.py (verified)
 prompt_loader.py (verified)
 
-memory_service.py (NEXT STEP - SQLite for session retention & conversation memory)
-vector_service.py (planned - Local VectorDB/ChromaDB for custom files/RAG)
+memory_service.py (verified - short-term memory, SQLite)
+vector_service.py (verified - long-term memory + documents, ChromaDB)
+scheduler_service.py (NEXT STEP - reminders and background tasks)
 slack_service.py (planned - Slack integration for mobile connection)
 social_media_analytics_service.py (planned - Competitor analytics/data export fetcher)
 voice_service.py (planned)
@@ -474,22 +520,16 @@ notification_service.py (planned)
 
 ---
 
-# Next Milestone: MemoryService
+# Next Milestone: Scheduler & Reminders
 
-**Location:** `services/memory_service.py`
-**Database Location:** `data/jarvis_memory.db` (configured via `Config.DATA_DIR`)
+Goal: the "remind me and do things for me" part of the second-brain vision.
 
-**Planned Responsibilities:**
-- Persistent SQLite database initialization and connection handling.
-- Session creation and session management.
-- Conversation history logging (User request + Agent response + metadata).
-- User preferences and state key-value storage.
-- Thread-safe database operations.
-
-**Explicit Out-of-Scope (Reserved for `VectorService`):**
-- Vector embeddings.
-- Semantic search.
-- Unstructured document retrieval / RAG.
+Not yet designed. Open questions to settle before code:
+- How reminders are created (natural language via agents, e.g. "påminn mig på fredag om X").
+- Where reminders are stored (MemoryService/SQLite as source of truth).
+- How they are delivered (Windows notification first, mobile later via notification_service).
+- How the scheduler runs (background thread in the chat process vs. a separate always-on process).
+- Background upkeep: the scheduler can also call `VectorService.sync_all()`.
 
 ---
 
