@@ -16,6 +16,7 @@ from services.memory_service import MemoryService
 from services.ollama_service import OllamaService
 from services.prompt_loader import PromptLoader
 from services.vector_service import VectorService
+from services.web_search_service import WebSearchService
 
 from agents.business_agent import BusinessAgent
 from agents.career_agent import CareerAgent
@@ -55,6 +56,7 @@ class JarvisOrchestrator:
         prompt_loader: Optional[PromptLoader] = None,
         memory_service: Optional[MemoryService] = None,
         vector_service: Optional[VectorService] = None,
+        web_service: Optional[WebSearchService] = None,
     ) -> None:
         """
         Initialize the Orchestrator with infrastructure services, router, and registered agents.
@@ -63,6 +65,7 @@ class JarvisOrchestrator:
         :param prompt_loader: Optional PromptLoader instance. Self-initialized if None.
         :param memory_service: Optional MemoryService instance. Self-initialized if None.
         :param vector_service: Optional VectorService instance. Self-initialized if None.
+        :param web_service: Optional WebSearchService instance. Self-initialized if None.
         """
         logger.info("Initializing Jarvis Orchestrator pipeline...")
 
@@ -73,6 +76,13 @@ class JarvisOrchestrator:
             memory_service=self.memory_service,
             ollama_service=self.ollama_service,
         )
+        self.web_service = web_service or WebSearchService(ollama_service=self.ollama_service)
+        if self.web_service.enabled and not self.web_service.is_available():
+            logger.warning(
+                "SearXNG is not reachable at %s - answers will lack live web information. "
+                "Start it with: docker compose up -d (in docker/searxng).",
+                self.web_service.searxng_url,
+            )
 
         # 1. Initialize Router with shared infrastructure services
         self.router = Router(
@@ -83,25 +93,39 @@ class JarvisOrchestrator:
         # 2. Instantiate and register all 7 specialist agents matching exact snapshot naming
         self.agent_registry: Dict[str, Agent] = {
             "business_agent": BusinessAgent(
-                memory_service=self.memory_service, vector_service=self.vector_service
+                memory_service=self.memory_service,
+                vector_service=self.vector_service,
+                web_service=self.web_service,
             ),
             "career_agent": CareerAgent(
-                memory_service=self.memory_service, vector_service=self.vector_service
+                memory_service=self.memory_service,
+                vector_service=self.vector_service,
+                web_service=self.web_service,
             ),
             "webdeveloper_agent": WebDeveloperAgent(
-                memory_service=self.memory_service, vector_service=self.vector_service
+                memory_service=self.memory_service,
+                vector_service=self.vector_service,
+                web_service=self.web_service,
             ),
             "education_agent": EducationAgent(
-                memory_service=self.memory_service, vector_service=self.vector_service
+                memory_service=self.memory_service,
+                vector_service=self.vector_service,
+                web_service=self.web_service,
             ),
             "general_agent": GeneralAgent(
-                memory_service=self.memory_service, vector_service=self.vector_service
+                memory_service=self.memory_service,
+                vector_service=self.vector_service,
+                web_service=self.web_service,
             ),
             "socialmediamanager_agent": SocialMediaManagerAgent(
-                memory_service=self.memory_service, vector_service=self.vector_service
+                memory_service=self.memory_service,
+                vector_service=self.vector_service,
+                web_service=self.web_service,
             ),
             "contentcreator_agent": ContentCreatorAgent(
-                memory_service=self.memory_service, vector_service=self.vector_service
+                memory_service=self.memory_service,
+                vector_service=self.vector_service,
+                web_service=self.web_service,
             ),
         }
 

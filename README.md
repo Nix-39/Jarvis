@@ -11,6 +11,7 @@ Jarvis is designed to become a "second brain": an assistant that remembers, find
 - **Routes requests** to the right specialist agent (business, career, web development, education, social media, content creation, general).
 - **Short-term memory:** each agent sees the latest turns of its own conversation.
 - **Long-term memory:** semantic search across *all* past conversations, across all agents, so something mentioned weeks ago to one agent can be found by another.
+- **Live web information:** when a question needs current facts (news, prices, competitors, regulations), Jarvis searches the web through a private, self-hosted SearXNG instance and cites its sources. It knows today's date and time.
 - **Personal knowledge base:** drop documents (`.txt`, `.md`, `.pdf`, `.docx`) into category folders and the agents use relevant passages when answering.
 - **Business support** for [VerkstadsFlow](https://www.verkstadsflow.se), a web agency for automotive workshops.
 
@@ -48,7 +49,7 @@ PromptLoader            OllamaService               MemoryService           Vect
 - **Orchestrator:** the single entry point. Owns the mapping from categories to agents and creates the shared services.
 - **Planner:** executes agent steps thread-safely with timeouts and retries via the `Agent` protocol (`handle`).
 - **Agents:** domain logic only. They never talk to external systems directly.
-- **Services:** infrastructure only (LLM calls, prompts, memory, vector search).
+- **Services:** infrastructure only (LLM calls, prompts, memory, vector search, web search). `WebSearchService` sits beside the four services in the diagram and talks to SearXNG running in Docker.
 
 ## Memory design
 
@@ -66,6 +67,14 @@ Key decisions:
 - **Fail-soft:** if long-term memory is unavailable, agents still answer, just without background context.
 - **Guardrails on retrieval:** at most 3 conversation hits and 3 document hits per request, a relevance cutoff (`VECTOR_MAX_DISTANCE`), and no duplicates of what is already in short-term memory.
 
+## Web search design
+
+- **Jarvis decides when to search.** A quick model step judges whether a question needs current information and writes a short search query. Only that rewritten query leaves the machine, never the raw message, so personal details are stripped. Personal matters are never searched. Prefix a message with `sök:` to force a search.
+- **Private search engine:** SearXNG runs in Docker, bound to `127.0.0.1` only, with all Linux capabilities dropped except three and no privilege escalation.
+- **Reads the best pages:** top results plus the main text of the top 2 pages (`WEB_FETCH_PAGES`).
+- **Security:** web content is labeled as untrusted in the prompt (prompt-injection defense); page fetching blocks localhost, private and link-local addresses on every redirect hop (SSRF protection), with timeouts, a size cap and a content-type allowlist.
+- **Fail-soft:** if SearXNG is down, Jarvis still answers and says its information may be outdated.
+
 ## Tech stack
 
 | Component | Details |
@@ -76,6 +85,7 @@ Key decisions:
 | Short-term memory | SQLite, WAL mode, one connection per thread |
 | Long-term memory | ChromaDB (persistent, telemetry disabled) |
 | Documents | `pypdf`, `python-docx` |
+| Web search | SearXNG (self-hosted, Docker), `httpx`, `lxml` |
 | Config/secrets | `.env` (never committed) + `core/config.py` |
 | Logging | Centralized rotating file logs, plan IDs for tracing |
 | Hardware (dev) | AMD Ryzen 9 3900X · 32 GB RAM · NVIDIA RTX 3060 12 GB |
@@ -85,11 +95,13 @@ Key decisions:
 ```
 jarvis/
 ├── jarvis.bat              # Start the chat (uses .venv automatically)
+├── docker/searxng/         # Private search engine (docker-compose + settings)
 ├── .env.example            # Configuration template (copy to .env)
 ├── requirements.txt
 │
 ├── agents/                 # Domain-specific logic, one file per agent
 ├── core/
+│   ├── clock.py            # Current date/time for prompts
 │   ├── config.py           # Settings and paths (self-creating folders)
 │   ├── logger.py
 │   ├── orchestrator.py     # Entry point + interactive chat
@@ -100,7 +112,8 @@ jarvis/
 │   ├── ollama_service.py   # chat() + embed()
 │   ├── prompt_loader.py
 │   ├── memory_service.py   # Short-term memory (SQLite)
-│   └── vector_service.py   # Long-term memory + documents (ChromaDB)
+│   ├── vector_service.py   # Long-term memory + documents (ChromaDB)
+│   └── web_search_service.py  # Live web information via SearXNG
 │
 ├── data/                   # Private runtime data (gitignored)
 │   ├── documents/          # Your documents, organized in category folders
@@ -127,7 +140,14 @@ jarvis/
    ollama pull qwen3:8b
    ollama pull qwen3-embedding:0.6b
    ```
-4. Start Jarvis: double-click `jarvis.bat`, or run it from a terminal:
+4. Start the private search engine (requires [Docker Desktop](https://www.docker.com/products/docker-desktop/)). Create `docker/searxng/.env` with a random secret, then start it:
+   ```powershell
+   cd docker\searxng
+   ..\..\.venv\Scripts\python -c "import secrets; print('SEARXNG_SECRET=' + secrets.token_hex(32))" | Out-File -Encoding ascii .env
+   docker compose up -d
+   cd ..\..
+   ```
+5. Start Jarvis: double-click `jarvis.bat`, or run it from a terminal:
    ```powershell
    .\jarvis
    ```
@@ -161,6 +181,12 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | `OLLAMA_THINK` | `false` | Reasoning mode for models that support it (slower, deeper) |
 | `AGENT_TIMEOUT_SECONDS` | `120` | Max time per agent step before the Planner retries |
 | `VECTOR_MAX_DISTANCE` | `0.55` | Relevance cutoff for long-term memory (lower = stricter) |
+| `OLLAMA_NUM_CTX` | `16384` | Context window for chat requests |
+| `WEB_SEARCH_ENABLED` | `true` | Turn live web search on/off |
+| `SEARXNG_URL` | `http://127.0.0.1:8888` | Local SearXNG instance |
+| `WEB_MAX_RESULTS` | `5` | Search results used per question |
+| `WEB_FETCH_PAGES` | `2` | Top pages read in full (0 = snippets only) |
+| `WEB_TIMEOUT_SECONDS` | `8` | Timeout for search and page fetching |
 | `LOG_LEVEL` | `INFO` | Log verbosity |
 
 ## Status
@@ -173,6 +199,8 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | MemoryService (short-term memory) | ✅ Verified |
 | VectorService (long-term memory + documents) | ✅ Verified |
 | Interactive chat + `jarvis.bat` launcher | ✅ Verified |
+| SearXNG (self-hosted, hardened) | ✅ Verified |
+| WebSearchService (live web information) + date awareness | ✅ Implemented |
 | Scheduler & reminders | 📋 Planned (next) |
 | Notifications / mobile access | 📋 Planned |
 | Voice (speech-to-text, text-to-speech) | 📋 Planned |

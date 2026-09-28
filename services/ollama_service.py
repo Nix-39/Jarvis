@@ -43,6 +43,7 @@ class OllamaService:
 
         request: Dict[str, Any] = {
             "model": self.model,
+            "options": {"num_ctx": Config.OLLAMA_NUM_CTX},
             "messages": [
                 {
                     "role": "user",

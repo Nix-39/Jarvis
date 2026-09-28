@@ -37,6 +37,18 @@ class Config:
     # Reasoning ("thinking") mode for models that support it, e.g. qwen3.
     # Off by default: much faster replies; turn on for harder reasoning tasks.
     OLLAMA_THINK = os.getenv("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
+    # Context window (tokens) for chat requests. Ollama's small default can silently cut off the
+    # start of long prompts (system prompt + memory + web results). 16384 fits a 12 GB GPU with qwen3:8b.
+    OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+
+    # ------------------------------------------------------
+    # Web search (WebSearchService, self-hosted SearXNG)
+    # ------------------------------------------------------
+    WEB_SEARCH_ENABLED = os.getenv("WEB_SEARCH_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+    SEARXNG_URL = os.getenv("SEARXNG_URL", "http://127.0.0.1:8888")
+    WEB_MAX_RESULTS = int(os.getenv("WEB_MAX_RESULTS", "5"))
+    WEB_FETCH_PAGES = int(os.getenv("WEB_FETCH_PAGES", "2"))   # 0 = snippets only
+    WEB_TIMEOUT_SECONDS = float(os.getenv("WEB_TIMEOUT_SECONDS", "8"))
 
     # ------------------------------------------------------
     # Execution limits

@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional
 
+from core.clock import current_datetime_text
 from core.logger import get_logger
 from services.memory_service import (
     DEFAULT_CONTEXT_LIMIT,
@@ -10,6 +11,7 @@ from services.memory_service import (
 from services.ollama_service import OllamaService
 from services.prompt_loader import PromptLoader
 from services.vector_service import VectorService
+from services.web_search_service import WebSearchService
 
 logger = get_logger(__name__)
 
@@ -27,6 +29,7 @@ class WebDeveloperAgent:
         self,
         memory_service: Optional[MemoryService] = None,
         vector_service: Optional[VectorService] = None,
+        web_service: Optional[WebSearchService] = None,
     ):
         self.llm = OllamaService()
         self.prompt_loader = PromptLoader()
@@ -34,6 +37,7 @@ class WebDeveloperAgent:
         self.vector = vector_service or VectorService(
             memory_service=self.memory, ollama_service=self.llm
         )
+        self.web = web_service or WebSearchService(ollama_service=self.llm)
 
         # Pre-load the system prompt during initialization
         self.system_prompt = self.prompt_loader.load("webdeveloper_agent.txt")
@@ -72,6 +76,9 @@ class WebDeveloperAgent:
             user_message, exclude_message_ids=[msg.id for msg in history]
         )
 
+        # Live web information, only when the question needs current facts.
+        web_context = self.web.build_context(user_message)
+
         self.memory.save_message(
             DEFAULT_SESSION_ID, role="user", content=user_message, agent_id=self.AGENT_ID
         )
@@ -79,6 +86,11 @@ class WebDeveloperAgent:
         full_prompt = f"""
 System Instructions:
 {self.system_prompt}
+
+Dagens datum och tid: {current_datetime_text()}
+
+Aktuell information från webben:
+{web_context}
 
 Relevant bakgrund (från långtidsminnet – använd bara om det är relevant för frågan):
 {background_context}

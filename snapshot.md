@@ -1,5 +1,5 @@
 # PROJECT SNAPSHOT
-**Last updated:** 2026-09-25
+**Last updated:** 2026-09-28
 
 ---
 
@@ -130,6 +130,8 @@ Dedicated agents and services will gradually automate these areas.
 | Embedding model | qwen3-embedding:0.6b |
 | Ollama | http://localhost:11434 |
 | Vector DB | ChromaDB (local, telemetry off) |
+| Web search | SearXNG in Docker, 127.0.0.1:8888 only |
+| Chat context | num_ctx 16384 (OLLAMA_NUM_CTX) |
 | Python | 3.13.x |
 
 Development language
@@ -175,6 +177,7 @@ Verified infrastructure should remain stable unless a clear architectural improv
 5. **Separation of Concerns:** Core performs orchestration only. Agents contain domain-specific business logic only. Services handle infrastructure and external integrations only. Core and Agents never communicate directly with external systems.
 6. **Memory Source of Truth:** SQLite (MemoryService) is the single source of truth for conversations. The ChromaDB vector index (VectorService) is derived data, kept in sync by a self-healing sync and always rebuildable.
 7. **Fail-Soft Optional Features:** Long-term memory must never break an agent reply. On failure, agents answer without background context.
+8. **Untrusted External Content:** Everything fetched from the web is injected as clearly labeled untrusted data and must never be followed as instructions. Only a rewritten, privacy-safe query leaves the machine; personal matters are never searched.
 
 Dependency direction
 
@@ -230,6 +233,12 @@ To prevent API hallucination, all components must strictly interface with these 
   `search_documents(query, top_k=3, category=None) -> list[SearchHit]`
   `sync_all(time_budget=None, blocking=True) -> dict[str, int]`
   `rebuild_index() -> dict[str, int]`, `stats() -> dict`
+* **`services.web_search_service.WebSearchService`**
+  `build_context(user_message: str) -> str`
+  `decide(user_message: str) -> tuple[bool, str]`
+  `search(query: str) -> list[WebResult]`, `is_available() -> bool`
+* **`core.clock`**
+  `current_datetime_text() -> str`
 * **`core.router.Router`**
   `classify_intent(user_input: str) -> str`
 * **`core.planner.Planner`**
@@ -305,6 +314,7 @@ C:\jarvis
 .env.example
 .gitignore
 jarvis.bat          (launcher, uses .venv automatically)
+docker/searxng/     (docker-compose.yml, config/settings.yml, .env secret - gitignored)
 requirements.txt
 README.md
 SNAPSHOT.md
@@ -351,6 +361,7 @@ services/
     ollama_service.py
     prompt_loader.py
     vector_service.py
+    web_search_service.py
 
 templates/
 ```
@@ -438,6 +449,16 @@ Status: Verified (live test: relevant doc distance ~0.27, unrelated ~0.8).
 `python -m core.orchestrator` runs an interactive chat (`Du >`, `exit` to quit, `--verbose` for console logs). `jarvis.bat` starts it with the project venv, no activation needed.
 Status: Verified.
 
+## ✅ SearXNG (Docker)
+Location: `docker/searxng/`
+Self-hosted private metasearch. Bound to 127.0.0.1:8888 only, cap_drop ALL (+CHOWN/SETGID/SETUID), no-new-privileges, limiter off (private), JSON format on, secret in gitignored .env. Docker Desktop starts at sign-in; container restart unless-stopped.
+Status: Verified.
+
+## ✅ WebSearchService + date awareness
+Location: `services/web_search_service.py`, `core/clock.py`
+Every agent prompt gets the current local date/time. Before answering, an LLM decision step judges whether current information is needed and rewrites a short privacy-safe query (bias: search when unsure; never personal matters; `sök:` forces). SearXNG top 5 results + main text of top 2 pages (lxml extraction). Web content labeled untrusted. SSRF protection (public IPs only, every redirect re-checked), timeouts, 2 MB cap, content-type allowlist. Fail-soft. OLLAMA_NUM_CTX=16384 so long prompts are not silently truncated. CLI: `python -m services.web_search_service "fråga"`.
+Status: Implemented, tested with fake SearXNG/pages; pending live verification.
+
 ## ✅ Specialist Agents (7 Agents)
 Locations:
 - `agents/business_agent.py` (`BusinessAgent`)
@@ -472,6 +493,8 @@ Status: All 7 agents verified.
 | MemoryService (short-term memory) | ✅ |
 | VectorService (long-term memory + documents) | ✅ |
 | Interactive chat + jarvis.bat | ✅ |
+| SearXNG (Docker, hardened) | ✅ |
+| WebSearchService + date awareness | 🔧 Pending live test |
 | Full pipeline (`python -m core.orchestrator`) | ✅ |
 | Logging & Audit Trail | ✅ |
 | Intent classification | ✅ |
@@ -508,6 +531,7 @@ prompt_loader.py (verified)
 
 memory_service.py (verified - short-term memory, SQLite)
 vector_service.py (verified - long-term memory + documents, ChromaDB)
+web_search_service.py (implemented - live web info via self-hosted SearXNG)
 scheduler_service.py (NEXT STEP - reminders and background tasks)
 slack_service.py (planned - Slack integration for mobile connection)
 social_media_analytics_service.py (planned - Competitor analytics/data export fetcher)
