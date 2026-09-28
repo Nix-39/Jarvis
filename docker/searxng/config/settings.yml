@@ -1,0 +1,22 @@
+# SearXNG settings for Jarvis.
+# Only differences from SearXNG's defaults are listed here.
+# The secret key comes from SEARXNG_SECRET in ../.env (never commit it).
+
+use_default_settings: true
+
+general:
+  instance_name: "Jarvis Search"
+
+server:
+  # Private instance on localhost only: no public listing, no bot limiter
+  # (the limiter needs an extra Valkey container and protects public servers).
+  public_instance: false
+  limiter: false
+  image_proxy: false
+  method: "GET"
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json   # used by Jarvis' WebSearchService

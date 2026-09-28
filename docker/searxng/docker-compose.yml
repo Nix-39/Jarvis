@@ -1,0 +1,42 @@
+# SearXNG - private, self-hosted metasearch engine for Jarvis (WebSearchService).
+#
+# Security:
+#   - Reachable ONLY from this computer (bound to 127.0.0.1), never from the network.
+#   - All Linux capabilities dropped except the three the image needs to start.
+#   - No privilege escalation inside the container.
+#   - Secret key lives in ./.env (gitignored), never in this file.
+#
+# Start:   docker compose up -d        (run in this folder)
+# Stop:    docker compose down
+# Update:  docker compose pull && docker compose up -d
+# Logs:    docker compose logs -f
+
+name: jarvis-searxng
+
+services:
+  searxng:
+    container_name: jarvis-searxng
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8080"   # localhost only
+    env_file: ./.env
+    volumes:
+      - ./config/:/etc/searxng/
+      - searxng-cache:/var/cache/searxng/
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "3"
+
+volumes:
+  searxng-cache:
