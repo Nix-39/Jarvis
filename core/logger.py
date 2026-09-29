@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
@@ -9,7 +10,9 @@ from core.config import Config
 # ==============================================================
 # Constants
 # ==============================================================
-LOG_FILE_NAME = "jarvis.log"
+# Separate processes (chat, background scheduler) use separate files, because
+# rotating one shared file from two processes fails on Windows.
+LOG_FILE_NAME = os.getenv("JARVIS_LOG_FILE", "jarvis.log")
 MAX_LOG_SIZE_BYTES = 5 * 1024 * 1024   # 5 MB per log file
 BACKUP_COUNT = 3                        # Keep 3 rotated backups
 

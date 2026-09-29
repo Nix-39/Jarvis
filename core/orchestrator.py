@@ -7,6 +7,8 @@ Serves as the main system entry point coordinating the end-to-end execution pipe
 User Request -> Intent Classification (Router) -> Category Mapping -> Execution Planning (Planner) -> Agent Execution.
 """
 
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Final, Optional
 
 from core.logger import get_logger
@@ -15,6 +17,7 @@ from core.router import Router
 from services.memory_service import MemoryService
 from services.ollama_service import OllamaService
 from services.prompt_loader import PromptLoader
+from services.reminder_service import ReminderService
 from services.vector_service import VectorService
 from services.web_search_service import WebSearchService
 
@@ -23,10 +26,23 @@ from agents.career_agent import CareerAgent
 from agents.contentcreator_agent import ContentCreatorAgent
 from agents.education_agent import EducationAgent
 from agents.general_agent import GeneralAgent
+from agents.reminder_agent import ReminderAgent
 from agents.socialmediamanager_agent import SocialMediaManagerAgent
 from agents.webdeveloper_agent import WebDeveloperAgent
 
 logger = get_logger(__name__)
+
+# Short replies that answer an agent's pending question ("ja", "nej", "kl 11 istället").
+_REPLY_START = re.compile(
+    r"^\s*(ja|japp|jajamän|jo|jepp|ok|okej|okey|kör|gör det|stämmer|korrekt|precis|absolut|visst|"
+    r"perfekt|yes|nej|nä|nää|nope|no|avbryt|stopp|glöm det|strunta i det|ändra|hellre)\b",
+    re.IGNORECASE,
+)
+_REPLY_CORRECTION = re.compile(
+    r"\d|\bkl\b|imorgon|idag|ikväll|istället|måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag",
+    re.IGNORECASE,
+)
+_PENDING_TTL = timedelta(minutes=15)
 
 
 class JarvisOrchestrator:
@@ -46,6 +62,7 @@ class JarvisOrchestrator:
         "general": "general_agent",
         "social_media": "socialmediamanager_agent",
         "content_creation": "contentcreator_agent",
+        "reminders": "reminder_agent",
     }
 
     DEFAULT_AGENT_ID: str = "general_agent"
@@ -57,6 +74,7 @@ class JarvisOrchestrator:
         memory_service: Optional[MemoryService] = None,
         vector_service: Optional[VectorService] = None,
         web_service: Optional[WebSearchService] = None,
+        reminder_service: Optional[ReminderService] = None,
     ) -> None:
         """
         Initialize the Orchestrator with infrastructure services, router, and registered agents.
@@ -66,6 +84,7 @@ class JarvisOrchestrator:
         :param memory_service: Optional MemoryService instance. Self-initialized if None.
         :param vector_service: Optional VectorService instance. Self-initialized if None.
         :param web_service: Optional WebSearchService instance. Self-initialized if None.
+        :param reminder_service: Optional ReminderService instance. Self-initialized if None.
         """
         logger.info("Initializing Jarvis Orchestrator pipeline...")
 
@@ -77,6 +96,7 @@ class JarvisOrchestrator:
             ollama_service=self.ollama_service,
         )
         self.web_service = web_service or WebSearchService(ollama_service=self.ollama_service)
+        self.reminder_service = reminder_service or ReminderService()
         if self.web_service.enabled and not self.web_service.is_available():
             logger.warning(
                 "SearXNG is not reachable at %s - answers will lack live web information. "
@@ -122,6 +142,11 @@ class JarvisOrchestrator:
                 vector_service=self.vector_service,
                 web_service=self.web_service,
             ),
+            "reminder_agent": ReminderAgent(
+                memory_service=self.memory_service,
+                reminder_service=self.reminder_service,
+                ollama_service=self.ollama_service,
+            ),
             "contentcreator_agent": ContentCreatorAgent(
                 memory_service=self.memory_service,
                 vector_service=self.vector_service,
@@ -155,6 +180,13 @@ class JarvisOrchestrator:
         display_input = preview[:50] + ("..." if len(preview) > 50 else "")
         logger.info(f"Processing user query: '{display_input}'")
 
+        # Step 0: A short reply to an agent that is waiting for confirmation goes
+        #         straight back to that agent (e.g. "ja" after a reminder proposal).
+        pending_agent_id = self._agent_awaiting_reply(user_message)
+        if pending_agent_id:
+            logger.info(f"Routing reply to agent awaiting confirmation: '{pending_agent_id}'.")
+            return self.planner.run(target_agent=pending_agent_id, user_message=user_message)
+
         # Step 1: Classify request intent category via Router
         category = self.router.classify_intent(user_message)
 
@@ -173,6 +205,30 @@ class JarvisOrchestrator:
 
         # Step 3: Pass execution plan to Planner
         return self.planner.run(target_agent=target_agent_id, user_message=user_message)
+
+    def _agent_awaiting_reply(self, user_message: str) -> Optional[str]:
+        """
+        Return the agent that has a fresh pending proposal (state key
+        '<agent_id>.pending') if the message looks like a reply to it.
+        """
+        message = (user_message or "").strip()
+        looks_like_reply = bool(_REPLY_START.match(message)) or (
+            len(message.split()) <= 8 and bool(_REPLY_CORRECTION.search(message))
+        )
+        if not looks_like_reply:
+            return None
+
+        for agent_id in self.agent_registry:
+            pending = self.memory_service.get_state(f"{agent_id}.pending")
+            if not isinstance(pending, dict):
+                continue
+            try:
+                created = datetime.fromisoformat(pending["created"])
+            except (KeyError, ValueError):
+                continue
+            if datetime.now(timezone.utc) - created <= _PENDING_TTL:
+                return agent_id
+        return None
 
 
 if __name__ == "__main__":

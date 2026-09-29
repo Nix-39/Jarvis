@@ -2,13 +2,14 @@
 
 A modular, security-first AI operating system that runs entirely on local hardware. Built for personal use, business automation and as a software architecture portfolio project.
 
-Jarvis coordinates seven specialized AI agents behind a single orchestrator, with both short-term and long-term memory, using local models via [Ollama](https://ollama.com). Nothing leaves the machine. The architecture is built first and functionality is added incrementally on top of it, with every component verified before the next one starts.
+Jarvis coordinates eight specialized AI agents behind a single orchestrator, with both short-term and long-term memory, using local models via [Ollama](https://ollama.com). Nothing leaves the machine. The architecture is built first and functionality is added incrementally on top of it, with every component verified before the next one starts.
 
 ## What Jarvis does
 
 Jarvis is designed to become a "second brain": an assistant that remembers, finds old information by meaning, and eventually reminds and acts on its own.
 
-- **Routes requests** to the right specialist agent (business, career, web development, education, social media, content creation, general).
+- **Routes requests** to the right specialist agent (business, career, web development, education, social media, content creation, reminders, general).
+- **Reminders with confirmation:** "påminn mig på fredag kl 10 om att ringa banken" → Jarvis proposes, you confirm or correct, and an always-on background scheduler notifies you when it is time (Windows notification, Telegram). One-off and recurring (daily, weekdays, weekly, monthly), with categories.
 - **Short-term memory:** each agent sees the latest turns of its own conversation.
 - **Long-term memory:** semantic search across *all* past conversations, across all agents, so something mentioned weeks ago to one agent can be found by another.
 - **Live web information:** when a question needs current facts (news, prices, competitors, regulations), Jarvis searches the web through a private, self-hosted SearXNG instance and cites its sources. It knows today's date and time.
@@ -28,19 +29,19 @@ Jarvis is designed to become a "second brain": an assistant that remembers, find
                      Router              Planner
                     (intent)       (timeouts, retries)
                                             │
-     ┌────────────┬────────────┬────────────┼────────────┬────────────┬────────────┐
-     ▼            ▼            ▼            ▼            ▼            ▼            ▼
- Business      Career       WebDev      Education     General    SocialMedia    Content
-     └────────────┴────────────┴────────────┼────────────┴────────────┴────────────┘
+      ┌──────────┬──────────┬──────────┬────┴─────┬──────────┬──────────┬──────────┐
+      ▼          ▼          ▼          ▼          ▼          ▼          ▼          ▼
+  Business    Career     WebDev    Education   General    Social     Content   Reminder
+      └──────────┴──────────┴──────────┴────┬─────┴──────────┴──────────┴──────────┘
                                             ▼
                                         Services
-      ┌───────────────────────┬─────────────┴─────────────┬───────────────────────┐
-      ▼                       ▼                           ▼                       ▼
-PromptLoader            OllamaService               MemoryService           VectorService
-                       (chat + embed)               (short-term)             (long-term)
-                                                       SQLite                 ChromaDB
-                                                          │                       ▲
-                                                          └───── synced into ─────┘
+      ┌────────────────────────┬────────────┴─────────────┬────────────────────────┐
+      ▼                        ▼                          ▼                        ▼
+   Ollama                   Memory                     Vector                  WebSearch
+(chat+embed)               (SQLite)                  (ChromaDB)                (SearXNG)
+
+                  Reminder ◄── Scheduler (own process) ──► Notification
+                    (SQLite)                            (Windows, Telegram)
 ```
 
 **Separation of concerns:**
@@ -49,7 +50,7 @@ PromptLoader            OllamaService               MemoryService           Vect
 - **Orchestrator:** the single entry point. Owns the mapping from categories to agents and creates the shared services.
 - **Planner:** executes agent steps thread-safely with timeouts and retries via the `Agent` protocol (`handle`).
 - **Agents:** domain logic only. They never talk to external systems directly.
-- **Services:** infrastructure only (LLM calls, prompts, memory, vector search, web search). `WebSearchService` sits beside the four services in the diagram and talks to SearXNG running in Docker.
+- **Services:** infrastructure only (LLM calls, prompts, memory, vector search, web search, reminders, notifications). WebSearch talks to SearXNG running in Docker; the Scheduler is a separate background process that delivers reminders.
 
 ## Memory design
 
@@ -75,6 +76,13 @@ Key decisions:
 - **Security:** web content is labeled as untrusted in the prompt (prompt-injection defense); page fetching blocks localhost, private and link-local addresses on every redirect hop (SSRF protection), with timeouts, a size cap and a content-type allowlist.
 - **Fail-soft:** if SearXNG is down, Jarvis still answers and says its information may be outdated.
 
+## Reminders & scheduler
+
+- **ReminderAgent** turns natural language into a structured proposal and always asks for confirmation. "ja" saves, "nej" discards, anything else ("kl 11 istället") corrects. The model never writes to the database; only validated Python code does.
+- **Background scheduler** (`core/scheduler.py`) runs as its own process without a window, started at login by Windows Task Scheduler with normal user rights. It checks for due reminders every 30 seconds, delivers reminders missed while the computer was off (marked as late), and a port lock prevents two schedulers from running.
+- **Notifications as channels** (`NotificationService`): Windows toast and Telegram today, a future Jarvis mobile app plugs in as another channel. Notification text is passed to PowerShell via environment variables and XML-escaped, never interpolated into a command.
+- **Categories** live in `data/reminder_categories.txt` (private). Reminders store a reserved `calendar_event_id` for the upcoming Google Calendar integration.
+
 ## Tech stack
 
 | Component | Details |
@@ -95,6 +103,7 @@ Key decisions:
 ```
 jarvis/
 ├── jarvis.bat              # Start the chat (uses .venv automatically)
+├── scripts/install_scheduler.ps1  # Autostart the background scheduler at login
 ├── docker/searxng/         # Private search engine (docker-compose + settings)
 ├── .env.example            # Configuration template (copy to .env)
 ├── requirements.txt
@@ -106,12 +115,15 @@ jarvis/
 │   ├── logger.py
 │   ├── orchestrator.py     # Entry point + interactive chat
 │   ├── planner.py
-│   └── router.py
+│   ├── router.py
+│   └── scheduler.py        # Background process: delivers reminders
 ├── prompts/                # Static system prompts, one per agent + router
 ├── services/
 │   ├── ollama_service.py   # chat() + embed()
 │   ├── prompt_loader.py
 │   ├── memory_service.py   # Short-term memory (SQLite)
+│   ├── notification_service.py  # Windows toast + Telegram channels
+│   ├── reminder_service.py # Reminders (SQLite, recurrence)
 │   ├── vector_service.py   # Long-term memory + documents (ChromaDB)
 │   └── web_search_service.py  # Live web information via SearXNG
 │
@@ -147,7 +159,12 @@ jarvis/
    docker compose up -d
    cd ..\..
    ```
-5. Start Jarvis: double-click `jarvis.bat`, or run it from a terminal:
+5. Start the background scheduler automatically at every login (normal user rights, no window):
+   ```powershell
+   .\scripts\install_scheduler.ps1
+   ```
+   Test notifications with `.venv\Scripts\python -m core.scheduler --test-notification`.
+6. Start Jarvis: double-click `jarvis.bat`, or run it from a terminal:
    ```powershell
    .\jarvis
    ```
@@ -187,6 +204,9 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | `WEB_MAX_RESULTS` | `5` | Search results used per question |
 | `WEB_FETCH_PAGES` | `2` | Top pages read in full (0 = snippets only) |
 | `WEB_TIMEOUT_SECONDS` | `8` | Timeout for search and page fetching |
+| `SCHEDULER_POLL_SECONDS` | `30` | How often the scheduler checks for due reminders |
+| `NOTIFY_WINDOWS` | `true` | Windows toast notifications |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | empty | Phone notifications via a private Telegram bot (optional) |
 | `LOG_LEVEL` | `INFO` | Log verbosity |
 
 ## Status
@@ -195,14 +215,16 @@ New, changed and deleted files are picked up automatically. Useful commands:
 |---|---|
 | Config, Logger, PromptLoader, OllamaService | ✅ Verified |
 | Router, Planner, Orchestrator | ✅ Verified & tested |
-| 7 specialist agents | ✅ Verified |
+| 7 specialist agents (+ ReminderAgent) | ✅ Verified |
 | MemoryService (short-term memory) | ✅ Verified |
 | VectorService (long-term memory + documents) | ✅ Verified |
 | Interactive chat + `jarvis.bat` launcher | ✅ Verified |
 | SearXNG (self-hosted, hardened) | ✅ Verified |
 | WebSearchService (live web information) + date awareness | ✅ Implemented |
-| Scheduler & reminders | 📋 Planned (next) |
-| Notifications / mobile access | 📋 Planned |
+| ReminderAgent + background scheduler + notifications | ✅ Implemented |
+| Telegram two-way chat (mobile access) | 📋 Planned (next) |
+| Google Calendar (family calendars, categories) | 📋 Planned |
+| Own Jarvis mobile app (API + Tailscale) | 📋 Planned |
 | Voice (speech-to-text, text-to-speech) | 📋 Planned |
 | Social media analytics | 📋 Planned |
 

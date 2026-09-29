@@ -51,6 +51,20 @@ class Config:
     WEB_TIMEOUT_SECONDS = float(os.getenv("WEB_TIMEOUT_SECONDS", "8"))
 
     # ------------------------------------------------------
+    # Reminders & background scheduler
+    # ------------------------------------------------------
+    SCHEDULER_POLL_SECONDS = int(os.getenv("SCHEDULER_POLL_SECONDS", "30"))
+    SCHEDULER_LOCK_PORT = int(os.getenv("SCHEDULER_LOCK_PORT", "47831"))  # prevents two schedulers running
+    REMINDER_CATEGORIES_FILE = BASE_DIR / "data" / "reminder_categories.txt"  # private (data/ is gitignored)
+
+    # ------------------------------------------------------
+    # Notifications
+    # ------------------------------------------------------
+    NOTIFY_WINDOWS = os.getenv("NOTIFY_WINDOWS", "true").strip().lower() in ("1", "true", "yes", "on")
+    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")   # secret - only in .env
+    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+    # ------------------------------------------------------
     # Execution limits
     # ------------------------------------------------------
     # Max seconds one agent step may run before the Planner retries it.

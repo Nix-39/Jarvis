@@ -1,5 +1,5 @@
 # PROJECT SNAPSHOT
-**Last updated:** 2026-09-28
+**Last updated:** 2026-09-28 (reminders)
 
 ---
 
@@ -203,10 +203,10 @@ External Systems
 
 Jarvis strictly enforces a 4-tier naming hierarchy to maintain zero ambiguity across components:
 
-1. **Domain Category (Router Output):** `business`, `career`, `web_development`, `education`, `general`, `social_media`, `content_creation`
-2. **Internal Agent ID (Orchestrator/Planner Key):** `business_agent`, `career_agent`, `webdeveloper_agent`, `education_agent`, `general_agent`, `socialmediamanager_agent`, `contentcreator_agent`
-3. **Python Module (File Path):** `business_agent.py`, `career_agent.py`, `webdeveloper_agent.py`, `education_agent.py`, `general_agent.py`, `socialmediamanager_agent.py`, `contentcreator_agent.py`
-4. **Python Class:** `BusinessAgent`, `CareerAgent`, `WebDeveloperAgent`, `EducationAgent`, `GeneralAgent`, `SocialMediaManagerAgent`, `ContentCreatorAgent`
+1. **Domain Category (Router Output):** `business`, `career`, `web_development`, `education`, `general`, `social_media`, `content_creation`, `reminders`
+2. **Internal Agent ID (Orchestrator/Planner Key):** `business_agent`, `career_agent`, `webdeveloper_agent`, `education_agent`, `general_agent`, `socialmediamanager_agent`, `contentcreator_agent`, `reminder_agent`
+3. **Python Module (File Path):** `business_agent.py`, `career_agent.py`, `webdeveloper_agent.py`, `education_agent.py`, `general_agent.py`, `socialmediamanager_agent.py`, `contentcreator_agent.py`, `reminder_agent.py`
+4. **Python Class:** `BusinessAgent`, `CareerAgent`, `WebDeveloperAgent`, `EducationAgent`, `GeneralAgent`, `SocialMediaManagerAgent`, `ContentCreatorAgent`, `ReminderAgent`
 
 ---
 
@@ -238,7 +238,15 @@ To prevent API hallucination, all components must strictly interface with these 
   `decide(user_message: str) -> tuple[bool, str]`
   `search(query: str) -> list[WebResult]`, `is_available() -> bool`
 * **`core.clock`**
-  `current_datetime_text() -> str`
+  `current_datetime_text() -> str`, `format_datetime_sv(moment: datetime) -> str`
+* **`services.reminder_service.ReminderService`**
+  `add(text, due, recurrence="none", category="") -> Reminder`, `get(id)`, `list_upcoming(limit=25)`
+  `cancel(id) -> bool`, `due(now=None) -> list[Reminder]`, `mark_fired(reminder, now=None) -> Optional[datetime]`, `categories() -> list[str]`
+* **`services.notification_service.NotificationService`**
+  `notify(title: str, message: str) -> bool` (channels: WindowsToastChannel, TelegramChannel)
+* **`core.scheduler.Scheduler`**
+  `check_once(now=None) -> int`, `run_forever()`
+* **Pending-confirmation convention:** an agent awaiting a yes/no stores `<agent_id>.pending` (dict with `created`) in MemoryService state; the Orchestrator routes short replies back to it for 15 minutes.
 * **`core.router.Router`**
   `classify_intent(user_input: str) -> str`
 * **`core.planner.Planner`**
@@ -381,19 +389,19 @@ templates/
                      Router              Planner
                     (intent)       (timeouts, retries)
                                             │
-     ┌────────────┬────────────┬────────────┼────────────┬────────────┬────────────┐
-     ▼            ▼            ▼            ▼            ▼            ▼            ▼
- Business      Career       WebDev      Education     General    SocialMedia    Content
-     └────────────┴────────────┴────────────┼────────────┴────────────┴────────────┘
+      ┌──────────┬──────────┬──────────┬────┴─────┬──────────┬──────────┬──────────┐
+      ▼          ▼          ▼          ▼          ▼          ▼          ▼          ▼
+  Business    Career     WebDev    Education   General    Social     Content   Reminder
+      └──────────┴──────────┴──────────┴────┬─────┴──────────┴──────────┴──────────┘
                                             ▼
                                         Services
-      ┌───────────────────────┬─────────────┴─────────────┬───────────────────────┐
-      ▼                       ▼                           ▼                       ▼
-PromptLoader            OllamaService               MemoryService           VectorService
-                       (chat + embed)               (short-term)             (long-term)
-                                                       SQLite                 ChromaDB
-                                                          │                       ▲
-                                                          └───── synced into ─────┘
+      ┌────────────────────────┬────────────┴─────────────┬────────────────────────┐
+      ▼                        ▼                          ▼                        ▼
+   Ollama                   Memory                     Vector                  WebSearch
+(chat+embed)               (SQLite)                  (ChromaDB)                (SearXNG)
+
+                  Reminder ◄── Scheduler (own process) ──► Notification
+                    (SQLite)                            (Windows, Telegram)
 ```
 
 ---
@@ -459,6 +467,13 @@ Location: `services/web_search_service.py`, `core/clock.py`
 Every agent prompt gets the current local date/time. Before answering, an LLM decision step judges whether current information is needed and rewrites a short privacy-safe query (bias: search when unsure; never personal matters; `sök:` forces). SearXNG top 5 results + main text of top 2 pages (lxml extraction). Web content labeled untrusted. SSRF protection (public IPs only, every redirect re-checked), timeouts, 2 MB cap, content-type allowlist. Fail-soft. OLLAMA_NUM_CTX=16384 so long prompts are not silently truncated. CLI: `python -m services.web_search_service "fråga"`.
 Status: Implemented, tested with fake SearXNG/pages; pending live verification.
 
+## ✅ Reminders, Scheduler & Notifications
+Locations: `agents/reminder_agent.py`, `prompts/reminder_agent.txt`, `services/reminder_service.py`, `services/notification_service.py`, `core/scheduler.py`, `scripts/install_scheduler.ps1`
+ReminderAgent: natural language → JSON proposal → confirmation (ja / nej / correction); create, list, cancel; one-off + daily/weekdays/weekly/monthly; categories from `data/reminder_categories.txt`. Router category `reminders`. Orchestrator routes short replies to an agent with a fresh pending proposal.
+Scheduler: separate always-on process (pythonw, Task Scheduler at logon, RunLevel Limited), poll 30s, late delivery of missed reminders, recurring skip to next future time, port lock (single instance), own log `logs/jarvis_scheduler.log`.
+Notifications: channel design (Windows toast via PowerShell with env-var input, Telegram outbound). Reminders reserve `calendar_event_id` for CalendarService.
+Status: Implemented, tested with fake LLM/notifications; pending live verification.
+
 ## ✅ Specialist Agents (7 Agents)
 Locations:
 - `agents/business_agent.py` (`BusinessAgent`)
@@ -494,7 +509,8 @@ Status: All 7 agents verified.
 | VectorService (long-term memory + documents) | ✅ |
 | Interactive chat + jarvis.bat | ✅ |
 | SearXNG (Docker, hardened) | ✅ |
-| WebSearchService + date awareness | 🔧 Pending live test |
+| WebSearchService + date awareness | ✅ |
+| ReminderAgent + scheduler + notifications | 🔧 Pending live test |
 | Full pipeline (`python -m core.orchestrator`) | ✅ |
 | Logging & Audit Trail | ✅ |
 | Intent classification | ✅ |
@@ -531,8 +547,12 @@ prompt_loader.py (verified)
 
 memory_service.py (verified - short-term memory, SQLite)
 vector_service.py (verified - long-term memory + documents, ChromaDB)
-web_search_service.py (implemented - live web info via self-hosted SearXNG)
-scheduler_service.py (NEXT STEP - reminders and background tasks)
+web_search_service.py (verified - live web info via self-hosted SearXNG)
+reminder_service.py (implemented - reminders, recurrence)
+notification_service.py (implemented - Windows toast + Telegram channels)
+telegram_service.py (NEXT STEP - two-way Telegram chat = mobile access)
+calendar_service.py (planned - Google Calendar, family calendars per category)
+api_service.py (planned - API for own Jarvis mobile app over Tailscale)
 slack_service.py (planned - Slack integration for mobile connection)
 social_media_analytics_service.py (planned - Competitor analytics/data export fetcher)
 voice_service.py (planned)
@@ -544,16 +564,11 @@ notification_service.py (planned)
 
 ---
 
-# Next Milestone: Scheduler & Reminders
+# Next Milestone: Telegram (two-way) → Google Calendar
 
-Goal: the "remind me and do things for me" part of the second-brain vision.
-
-Not yet designed. Open questions to settle before code:
-- How reminders are created (natural language via agents, e.g. "påminn mig på fredag om X").
-- Where reminders are stored (MemoryService/SQLite as source of truth).
-- How they are delivered (Windows notification first, mobile later via notification_service).
-- How the scheduler runs (background thread in the chat process vs. a separate always-on process).
-- Background upkeep: the scheduler can also call `VectorService.sync_all()`.
+1. **Telegram two-way chat:** chat with Jarvis from the phone through a private bot (long polling, outbound only, no open ports), locked to the owner's chat ID. Reuses Orchestrator.process_query; notifications already use TelegramChannel.
+2. **CalendarService (Google Calendar):** one calendar per category (each child, work, VerkstadsFlow, shared family calendar) shared with the wife (iPhone via Google account in iOS Calendar) and shown on an Android tablet. Jarvis picks the calendar/category and asks for confirmation; can also read the calendar ("vad har vi i helgen?"). OAuth with calendar-only scope, token stored locally. Starts on the current Google account; a new private account can be swapped in later.
+3. Later: Cal.com booking for VerkstadsFlow (on top of Google Calendar); own mobile app (FastAPI + Tailscale, PWA or .NET MAUI) as another notification/chat channel.
 
 ---
 

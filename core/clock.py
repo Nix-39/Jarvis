@@ -12,6 +12,13 @@ _MONTHS = ("januari", "februari", "mars", "april", "maj", "juni", "juli",
            "augusti", "september", "oktober", "november", "december")
 
 
+def format_datetime_sv(moment: datetime) -> str:
+    """Return e.g. 'fredag 3 oktober kl. 10:00' (year added if not the current year)."""
+    local = moment.astimezone()
+    year = f" {local.year}" if local.year != datetime.now().year else ""
+    return f"{_WEEKDAYS[local.weekday()]} {local.day} {_MONTHS[local.month - 1]}{year} kl. {local:%H:%M}"
+
+
 def current_datetime_text() -> str:
     """Return e.g. 'måndag 28 september 2026, kl. 14:03 (vecka 40)' in local time."""
     now = datetime.now().astimezone()
