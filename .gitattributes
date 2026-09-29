@@ -1,0 +1,17 @@
+# Line endings: text files are stored with LF in the repository and checked out
+# in each platform's native format (CRLF on Windows). Keeps diffs clean no matter
+# which editor or operating system touched a file.
+* text=auto
+
+# Windows scripts must always use CRLF
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files - never convert
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.db binary
