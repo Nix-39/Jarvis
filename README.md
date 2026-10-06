@@ -10,6 +10,7 @@ Jarvis is designed to become a "second brain": an assistant that remembers, find
 
 - **Routes requests** to the right specialist agent (business, career, web development, education, social media, content creation, reminders, general).
 - **Reminders with confirmation:** "påminn mig på fredag kl 10 om att ringa banken" → Jarvis proposes, you confirm or correct, and an always-on background scheduler notifies you when it is time (Windows notification, Telegram). One-off and recurring (daily, weekdays, weekly, monthly), with categories.
+- **Always running, reachable from the phone:** Jarvis Core runs in the background from login. Chat with it in a terminal at the computer, or from anywhere through a private Telegram bot (no open ports).
 - **Short-term memory:** each agent sees the latest turns of its own conversation.
 - **Long-term memory:** semantic search across *all* past conversations, across all agents, so something mentioned weeks ago to one agent can be found by another.
 - **Live web information:** when a question needs current facts (news, prices, competitors, regulations), Jarvis searches the web through a private, self-hosted SearXNG instance and cites its sources. It knows today's date and time.
@@ -19,7 +20,10 @@ Jarvis is designed to become a "second brain": an assistant that remembers, find
 ## Architecture
 
 ```
-                                       User (chat)
+                     Terminal (jarvis.bat)      Telegram (phone)      Desktop UI (planned)
+                               └───────────────────────┼───────────────────────┘
+                                                        ▼
+                         Jarvis Core (background process, local API on 127.0.0.1, live event feed)
                                             │
                                             ▼
                                    Jarvis Orchestrator
@@ -40,17 +44,18 @@ Jarvis is designed to become a "second brain": an assistant that remembers, find
    Ollama                   Memory                     Vector                  WebSearch
 (chat+embed)               (SQLite)                  (ChromaDB)                (SearXNG)
 
-                  Reminder ◄── Scheduler (own process) ──► Notification
+                  Reminder ◄── Scheduler (thread in Core) ──► Notification
                     (SQLite)                            (Windows, Telegram)
 ```
 
 **Separation of concerns:**
 
+- **Jarvis Core:** the one always-running process. Owns the Orchestrator, the reminder scheduler, the Telegram bot and the local API. Clients (terminal, phone, future desktop UI) never load models or memory themselves.
 - **Router:** intent classification only. Outputs a validated domain category.
 - **Orchestrator:** the single entry point. Owns the mapping from categories to agents and creates the shared services.
 - **Planner:** executes agent steps thread-safely with timeouts and retries via the `Agent` protocol (`handle`).
 - **Agents:** domain logic only. They never talk to external systems directly.
-- **Services:** infrastructure only (LLM calls, prompts, memory, vector search, web search, reminders, notifications). WebSearch talks to SearXNG running in Docker; the Scheduler is a separate background process that delivers reminders.
+- **Services:** infrastructure only (LLM calls, prompts, memory, vector search, web search, reminders, notifications, Telegram). WebSearch talks to SearXNG running in Docker.
 
 ## Memory design
 
@@ -76,10 +81,18 @@ Key decisions:
 - **Security:** web content is labeled as untrusted in the prompt (prompt-injection defense); page fetching blocks localhost, private and link-local addresses on every redirect hop (SSRF protection), with timeouts, a size cap and a content-type allowlist.
 - **Fail-soft:** if SearXNG is down, Jarvis still answers and says its information may be outdated.
 
+## Jarvis Core, Telegram & the event feed
+
+- **One owner of memory.** ChromaDB must not be written by two processes at once, so exactly one process, Jarvis Core (`core/jarvis_core.py`), owns the Orchestrator. A localhost port lock guarantees a single instance. Questions from all channels are answered one at a time, in arrival order.
+- **Autostart without a window:** Windows Task Scheduler starts the core at login with normal user rights. At startup it waits for Ollama, so the order in which programs start does not matter. Reminders run from the first second, even before the AI models are ready.
+- **Local API** (`core/api.py`, FastAPI): bound to `127.0.0.1` only, so it is not reachable from the network. Every endpoint except `/health` needs a bearer token that is generated on first start (`data/api_token.txt`, private), so other programs and web pages on the same computer cannot use it. Host-header check against DNS rebinding, no CORS, no public API docs.
+- **Telegram bot** (`services/telegram_service.py`): long polling over outgoing HTTPS, so no port is opened on the computer or router. Only the owner's chat id is answered; others are ignored and logged. Messages sent while the computer was off are not executed (an old "remind me in 10 minutes" would be wrong); Jarvis asks you to resend them. The bot token is never logged. `/status` shows how Jarvis is doing.
+- **Event feed** (`core/events.py`): components publish small events ("Kategori 'business' → business_agent", "Söker på webben: …", "Påminnelse skickad"). The terminal shows them live while you wait, and they are streamed via `/events/stream` (Server-Sent Events) for the upcoming visual desktop interface that shows the second brain at work.
+
 ## Reminders & scheduler
 
 - **ReminderAgent** turns natural language into a structured proposal and always asks for confirmation. "ja" saves, "nej" discards, anything else ("kl 11 istället") corrects. The model never writes to the database; only validated Python code does.
-- **Background scheduler** (`core/scheduler.py`) runs as its own process without a window, started at login by Windows Task Scheduler with normal user rights. It checks for due reminders every 30 seconds, delivers reminders missed while the computer was off (marked as late), and a port lock prevents two schedulers from running.
+- **Scheduler** (`core/scheduler.py`) runs as a thread inside Jarvis Core. It checks for due reminders every 30 seconds and delivers reminders missed while the computer was off (marked as late).
 - **Notifications as channels** (`NotificationService`): Windows toast and Telegram today, a future Jarvis mobile app plugs in as another channel. Notification text is passed to PowerShell via environment variables and XML-escaped, never interpolated into a command.
 - **Categories** live in `data/reminder_categories.txt` (private). Reminders store a reserved `calendar_event_id` for the upcoming Google Calendar integration.
 
@@ -94,6 +107,8 @@ Key decisions:
 | Long-term memory | ChromaDB (persistent, telemetry disabled) |
 | Documents | `pypdf`, `python-docx` |
 | Web search | SearXNG (self-hosted, Docker), `httpx`, `lxml` |
+| Local API | FastAPI + uvicorn (127.0.0.1 only, bearer token, Server-Sent Events) |
+| Phone access | Telegram Bot API (long polling, no open ports) |
 | Config/secrets | `.env` (never committed) + `core/config.py` |
 | Logging | Centralized rotating file logs, plan IDs for tracing |
 | Hardware (dev) | AMD Ryzen 9 3900X · 32 GB RAM · NVIDIA RTX 3060 12 GB |
@@ -102,21 +117,30 @@ Key decisions:
 
 ```
 jarvis/
-├── jarvis.bat              # Start the chat (uses .venv automatically)
-├── scripts/install_scheduler.ps1  # Autostart the background scheduler at login
+├── jarvis.bat              # Chat with Jarvis in a terminal (uses .venv automatically)
+├── scripts/
+│   ├── install_core.ps1    # Autostart Jarvis Core at login (no window)
+│   ├── restart_core.ps1    # Restart (or -Stop) Jarvis Core, e.g. after editing .env
+│   └── check_autostart.ps1 # Verify that everything starts and runs
 ├── docker/searxng/         # Private search engine (docker-compose + settings)
 ├── .env.example            # Configuration template (copy to .env)
 ├── requirements.txt
 │
 ├── agents/                 # Domain-specific logic, one file per agent
+├── clients/
+│   └── terminal.py         # Thin terminal client for Jarvis Core
 ├── core/
+│   ├── api.py              # Local API (127.0.0.1, token, event stream)
 │   ├── clock.py            # Current date/time for prompts
 │   ├── config.py           # Settings and paths (self-creating folders)
+│   ├── events.py           # Live event feed (what Jarvis is doing)
+│   ├── jarvis_core.py      # The always-running background process
 │   ├── logger.py
-│   ├── orchestrator.py     # Entry point + interactive chat
+│   ├── orchestrator.py     # Routing pipeline (+ standalone debug chat)
 │   ├── planner.py
 │   ├── router.py
-│   └── scheduler.py        # Background process: delivers reminders
+│   ├── scheduler.py        # Delivers reminders (thread in the core)
+│   └── single_instance.py  # Lock: only one process owns the memory
 ├── prompts/                # Static system prompts, one per agent + router
 ├── services/
 │   ├── ollama_service.py   # chat() + embed()
@@ -124,6 +148,7 @@ jarvis/
 │   ├── memory_service.py   # Short-term memory (SQLite)
 │   ├── notification_service.py  # Windows toast + Telegram channels
 │   ├── reminder_service.py # Reminders (SQLite, recurrence)
+│   ├── telegram_service.py # Two-way chat with the phone
 │   ├── vector_service.py   # Long-term memory + documents (ChromaDB)
 │   └── web_search_service.py  # Live web information via SearXNG
 │
@@ -159,16 +184,20 @@ jarvis/
    docker compose up -d
    cd ..\..
    ```
-5. Start the background scheduler automatically at every login (normal user rights, no window):
+5. *(Optional)* Connect your phone via Telegram:
+   1. In Telegram, talk to **@BotFather**, send `/newbot` and follow the steps. Put the token you get in `.env` as `TELEGRAM_BOT_TOKEN`.
+   2. Start Jarvis Core (next step), send `/start` to your new bot, and it replies with your chat id. Put it in `.env` as `TELEGRAM_CHAT_ID` and restart the core with `.\scripts\restart_core.ps1`.
+6. Start Jarvis Core automatically at every login (normal user rights, no window):
    ```powershell
-   .\scripts\install_scheduler.ps1
+   .\scripts\install_core.ps1
+   .\scripts\check_autostart.ps1   # everything should be green
    ```
-   Test notifications with `.venv\Scripts\python -m core.scheduler --test-notification`.
-6. Start Jarvis: double-click `jarvis.bat`, or run it from a terminal:
+   Test notifications with `.venv\Scripts\python -m core.scheduler --test-notification`. To watch the core's log live instead, run `.\scripts\restart_core.ps1 -Stop` and then `.venv\Scripts\python -m core.jarvis_core`.
+7. Chat with Jarvis: double-click `jarvis.bat`, or run it from a terminal:
    ```powershell
    .\jarvis
    ```
-   No venv activation is needed. Type your message after `Du >`, and type `exit` to quit. Add `--verbose` to see all logs in the terminal.
+   No venv activation is needed. Type your message after `Du >`, `/status` shows how Jarvis is doing, and `exit` quits. Add `--quiet` to hide the live "what Jarvis is doing" lines. Logs are in `logs/jarvis_core.log`.
 
 ## Using long-term memory
 
@@ -206,7 +235,11 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | `WEB_TIMEOUT_SECONDS` | `8` | Timeout for search and page fetching |
 | `SCHEDULER_POLL_SECONDS` | `30` | How often the scheduler checks for due reminders |
 | `NOTIFY_WINDOWS` | `true` | Windows toast notifications |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | empty | Phone notifications via a private Telegram bot (optional) |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | empty | Private Telegram bot: chat and notifications on the phone (optional) |
+| `TELEGRAM_MAX_MESSAGE_AGE_MINUTES` | `10` | Older Telegram messages (sent while Jarvis was off) are not executed |
+| `TELEGRAM_STARTUP_MESSAGE` | `true` | Send "Jarvis är online" to Telegram when the core starts |
+| `JARVIS_API_PORT` | `8765` | Local API port (always bound to 127.0.0.1) |
+| `OLLAMA_STARTUP_WAIT_SECONDS` | `300` | How long the core waits for Ollama at login |
 | `LOG_LEVEL` | `INFO` | Log verbosity |
 
 ## Status
@@ -218,14 +251,16 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | 7 specialist agents (+ ReminderAgent) | ✅ Verified |
 | MemoryService (short-term memory) | ✅ Verified |
 | VectorService (long-term memory + documents) | ✅ Verified |
-| Interactive chat + `jarvis.bat` launcher | ✅ Verified |
+| Terminal chat (`jarvis.bat`) | ✅ Verified |
 | SearXNG (self-hosted, hardened) | ✅ Verified |
 | WebSearchService (live web information) + date awareness | ✅ Implemented |
-| ReminderAgent + background scheduler + notifications | ✅ Implemented |
-| Telegram two-way chat (mobile access) | 📋 Planned (next) |
+| ReminderAgent + scheduler + notifications | ✅ Verified |
+| Jarvis Core (always running) + local API + event feed | ✅ Implemented |
+| Telegram two-way chat (mobile access) | ✅ Implemented |
+| Visual desktop interface (brain map, chat window, hotkey, tray icon) | 📋 Planned (next) |
 | Google Calendar (family calendars, categories) | 📋 Planned |
 | Own Jarvis mobile app (API + Tailscale) | 📋 Planned |
-| Voice (speech-to-text, text-to-speech) | 📋 Planned |
+| Voice (local speech-to-text, text-to-speech, "Hej Jarvis" wake word) | 📋 Planned |
 | Social media analytics | 📋 Planned |
 
 ## Design principles

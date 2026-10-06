@@ -8,12 +8,15 @@ Runs as its own process (no window), independent of the chat:
       marked as late. Recurring reminders then move to their next future time.
     - Only one scheduler can run at a time (localhost port lock).
 
-Start manually:      .venv\\Scripts\\python -m core.scheduler
+Normally the scheduler runs as a thread inside Jarvis Core (core.jarvis_core).
+It can still be run standalone for troubleshooting, but not while the core runs
+(they share the same single-instance lock):
+
 Test notification:   .venv\\Scripts\\python -m core.scheduler --test-notification
 Run once and exit:   .venv\\Scripts\\python -m core.scheduler --once
-Autostart at login:  scripts\\install_scheduler.ps1
+Standalone:          .venv\\Scripts\\python -m core.scheduler
 
-Logs go to logs/jarvis_scheduler.log (separate from the chat's jarvis.log).
+Standalone logs go to logs/jarvis_scheduler.log.
 """
 
 import os
@@ -28,14 +31,16 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
-import socket  # noqa: E402
+import threading  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime, timedelta, timezone  # noqa: E402
 from typing import Optional  # noqa: E402
 
 from core.clock import format_datetime_sv  # noqa: E402
 from core.config import Config  # noqa: E402
+from core.events import event_bus  # noqa: E402
 from core.logger import get_logger  # noqa: E402
+from core.single_instance import acquire_lock  # noqa: E402
 from services.notification_service import NotificationService  # noqa: E402
 from services.reminder_service import RECURRENCE_LABELS, ReminderService  # noqa: E402
 
@@ -75,6 +80,11 @@ class Scheduler:
 
             next_due = self.reminders.mark_fired(reminder, now_utc)
             delivered += 1
+            event_bus.publish(
+                "reminder.delivered", "scheduler", f"Påminnelse skickad: {reminder.text}",
+                reminder_id=reminder.id, late=late,
+                channels=[channel.name for channel in self.notifications.channels],
+            )
             if next_due:
                 logger.info(
                     "Reminder %s delivered; next %s (%s).",
@@ -85,26 +95,19 @@ class Scheduler:
 
         return delivered
 
-    def run_forever(self) -> None:
+    def run_forever(self, stop: Optional[threading.Event] = None) -> None:
+        """Check for due reminders until `stop` is set (forever if None)."""
         logger.info("Scheduler started (poll every %ss).", Config.SCHEDULER_POLL_SECONDS)
-        while True:
+        while stop is None or not stop.is_set():
             try:
                 self.check_once()
             except Exception as exc:
                 # Never die on a single failure (e.g. database briefly locked).
                 logger.error("Scheduler check failed: %s", exc)
-            time.sleep(Config.SCHEDULER_POLL_SECONDS)
-
-
-def _acquire_single_instance_lock() -> Optional[socket.socket]:
-    """Bind a localhost port as a process-wide lock. None if another scheduler runs."""
-    lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        lock.bind(("127.0.0.1", Config.SCHEDULER_LOCK_PORT))
-    except OSError:
-        lock.close()
-        return None
-    return lock
+            if stop is None:
+                time.sleep(Config.SCHEDULER_POLL_SECONDS)
+            else:
+                stop.wait(Config.SCHEDULER_POLL_SECONDS)
 
 
 def main() -> None:
@@ -124,10 +127,10 @@ def main() -> None:
         print(f"Delivered {Scheduler().check_once()} reminder(s).")
         return
 
-    lock = _acquire_single_instance_lock()
+    lock = acquire_lock()
     if lock is None:
-        print("Another Jarvis scheduler is already running.")
-        logger.info("Another scheduler instance is running; exiting.")
+        print("Jarvis Core (or another scheduler) is already running - it delivers reminders.")
+        logger.info("Another Jarvis process holds the lock; exiting.")
         return
 
     try:

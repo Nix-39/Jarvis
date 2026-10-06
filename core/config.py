@@ -54,7 +54,9 @@ class Config:
     # Reminders & background scheduler
     # ------------------------------------------------------
     SCHEDULER_POLL_SECONDS = int(os.getenv("SCHEDULER_POLL_SECONDS", "30"))
-    SCHEDULER_LOCK_PORT = int(os.getenv("SCHEDULER_LOCK_PORT", "47831"))  # prevents two schedulers running
+    # Localhost port held as a lock by the one process that owns Jarvis' memory
+    # (Jarvis Core, or a standalone scheduler/chat). Prevents two writers.
+    JARVIS_LOCK_PORT = int(os.getenv("JARVIS_LOCK_PORT", "47831"))
     REMINDER_CATEGORIES_FILE = BASE_DIR / "data" / "reminder_categories.txt"  # private (data/ is gitignored)
 
     # ------------------------------------------------------
@@ -63,6 +65,18 @@ class Config:
     NOTIFY_WINDOWS = os.getenv("NOTIFY_WINDOWS", "true").strip().lower() in ("1", "true", "yes", "on")
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")   # secret - only in .env
     TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+    # Messages older than this (sent while Jarvis was offline) are not executed.
+    TELEGRAM_MAX_MESSAGE_AGE_MINUTES = int(os.getenv("TELEGRAM_MAX_MESSAGE_AGE_MINUTES", "10"))
+    TELEGRAM_STARTUP_MESSAGE = os.getenv("TELEGRAM_STARTUP_MESSAGE", "true").strip().lower() in ("1", "true", "yes", "on")
+
+    # ------------------------------------------------------
+    # Jarvis Core local API (terminal client, future desktop UI)
+    # ------------------------------------------------------
+    # Bound to localhost only - never reachable from the network.
+    JARVIS_API_HOST = "127.0.0.1"
+    JARVIS_API_PORT = int(os.getenv("JARVIS_API_PORT", "8765"))
+    JARVIS_API_TOKEN_FILE = BASE_DIR / "data" / "api_token.txt"  # auto-generated, private
+    OLLAMA_STARTUP_WAIT_SECONDS = int(os.getenv("OLLAMA_STARTUP_WAIT_SECONDS", "300"))
 
     # ------------------------------------------------------
     # Execution limits

@@ -46,6 +46,7 @@ import chromadb
 from chromadb.config import Settings
 
 from core.config import Config
+from core.events import event_bus
 from core.logger import get_logger
 from services.memory_service import MemoryService, Message
 from services.ollama_service import OllamaService
@@ -199,6 +200,13 @@ class VectorService:
             len(conversation_hits),
             len(document_hits),
         )
+        event_bus.publish(
+            "memory.lookup", "long_term_memory",
+            f"Minnet: {len(conversation_hits)} samtal, {len(document_hits)} dokument",
+            conversations=len(conversation_hits),
+            documents=len(document_hits),
+            sources=sorted({hit.label for hit in document_hits}),
+        )
         return format_background(conversation_hits, document_hits)
 
     def search_conversations(
@@ -252,6 +260,7 @@ class VectorService:
 
             if any(result.values()):
                 logger.info("Long-term memory synced | %s", result)
+                event_bus.publish("memory.synced", "long_term_memory", "Långtidsminnet uppdaterat", **result)
             return result
         finally:
             self._sync_lock.release()

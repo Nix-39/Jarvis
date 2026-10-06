@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from core.config import Config
+from core.events import event_bus
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -128,6 +129,11 @@ class ReminderService:
         )
         reminder = self.get(int(cursor.lastrowid))
         logger.info("Reminder %s created (due %s, %s).", reminder.id, reminder.due_at.isoformat(), recurrence)
+        event_bus.publish(
+            "reminder.created", "reminders", f"Ny påminnelse: {reminder.text}",
+            reminder_id=reminder.id, due_at=reminder.due_at.isoformat(),
+            recurrence=recurrence, category=reminder.category,
+        )
         return reminder
 
     def get(self, reminder_id: int) -> Optional[Reminder]:

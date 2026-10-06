@@ -46,6 +46,7 @@ import httpx
 from lxml import html as lxml_html
 
 from core.config import Config
+from core.events import event_bus
 from core.logger import get_logger
 from services.ollama_service import OllamaService
 
@@ -165,17 +166,24 @@ class WebSearchService:
             logger.info("Web search not needed for this message.")
             return NO_SEARCH
 
+        event_bus.publish("websearch.query", "web_search", f"Söker på webben: {query}", query=query)
         try:
             results = self.search(query)
         except Exception as exc:
             logger.warning("Web search failed (is SearXNG running?): %s", exc)
+            event_bus.publish("websearch.failed", "web_search", "Webbsökningen misslyckades", query=query)
             return SEARCH_FAILED
 
         if not results:
+            event_bus.publish("websearch.results", "web_search", "Inga träffar på webben", query=query, results=0, sources=[])
             return NO_RESULTS
 
         self._enrich_with_page_text(results)
         logger.info("Web search done | query=%r | results=%s", query, len(results))
+        event_bus.publish(
+            "websearch.results", "web_search", f"Hittade {len(results)} källor på webben",
+            query=query, results=len(results), sources=[result.url for result in results],
+        )
         return format_web_context(query, results)
 
     def decide(self, user_message: str) -> tuple[bool, str]:

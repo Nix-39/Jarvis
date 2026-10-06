@@ -1,5 +1,5 @@
 # PROJECT SNAPSHOT
-**Last updated:** 2026-09-28 (reminders)
+**Last updated:** 2026-10-06 (Jarvis Core + Telegram)
 
 ---
 
@@ -131,6 +131,8 @@ Dedicated agents and services will gradually automate these areas.
 | Ollama | http://localhost:11434 |
 | Vector DB | ChromaDB (local, telemetry off) |
 | Web search | SearXNG in Docker, 127.0.0.1:8888 only |
+| Jarvis Core API | FastAPI/uvicorn, 127.0.0.1:8765 only, bearer token |
+| Single-instance lock | localhost port 47831 (bound, never listening) |
 | Chat context | num_ctx 16384 (OLLAMA_NUM_CTX) |
 | Python | 3.13.x |
 
@@ -178,6 +180,8 @@ Verified infrastructure should remain stable unless a clear architectural improv
 6. **Memory Source of Truth:** SQLite (MemoryService) is the single source of truth for conversations. The ChromaDB vector index (VectorService) is derived data, kept in sync by a self-healing sync and always rebuildable.
 7. **Fail-Soft Optional Features:** Long-term memory must never break an agent reply. On failure, agents answer without background context.
 8. **Untrusted External Content:** Everything fetched from the web is injected as clearly labeled untrusted data and must never be followed as instructions. Only a rewritten, privacy-safe query leaves the machine; personal matters are never searched.
+9. **Single Memory Owner:** Exactly one long-running process (Jarvis Core) owns the Orchestrator, ChromaDB and reminder delivery, guarded by a localhost port lock. All user channels (terminal, Telegram, future desktop UI and mobile app) are thin clients of the core. Queries are serialized.
+10. **Observability via Events:** Components publish small events on the in-process EventBus (`core/events.py`). Publishing never raises and never blocks; the event feed is exposed only through the authenticated local API.
 
 Dependency direction
 
@@ -245,14 +249,25 @@ To prevent API hallucination, all components must strictly interface with these 
 * **`services.notification_service.NotificationService`**
   `notify(title: str, message: str) -> bool` (channels: WindowsToastChannel, TelegramChannel)
 * **`core.scheduler.Scheduler`**
-  `check_once(now=None) -> int`, `run_forever()`
+  `check_once(now=None) -> int`, `run_forever(stop: Optional[threading.Event] = None)`
+* **`core.events.event_bus`** (singleton `EventBus`)
+  `publish(type, source, message, **data) -> Optional[Event]` (never raises), `subscribe() -> queue.Queue`, `unsubscribe(q)`, `recent(after_id=0, limit=200) -> list[Event]`
+  Event types: `core.starting|online|offline|failed`, `query.received|queued|completed`, `agent.selected`, `memory.lookup|synced`, `websearch.query|results|failed`, `reminder.created|delivered`, `security.rejected`
+* **`core.single_instance`**
+  `acquire_lock() -> Optional[socket]`, `lock_is_held() -> bool`
+* **`core.jarvis_core.JarvisCore`**
+  `start_scheduler()`, `start_brain(orchestrator=None)`, `ask(message, channel="terminal") -> PlannerResult`, `status() -> dict`, `status_text() -> str`, `stop()`
+* **`core.api`** (local HTTP API, 127.0.0.1:8765, `Authorization: Bearer <data/api_token.txt>`)
+  `GET /health` (no token), `GET /status`, `POST /chat {message, channel}` -> `{reply, agent, seconds, success}`, `GET /events/recent?after_id&limit`, `GET /events/stream?after_id` (SSE)
+* **`services.telegram_service.TelegramService`**
+  `run(stop)`, `poll_once() -> list`, `handle_update(update)`, `send_text(text, chat_id=None) -> bool`, `setup_mode`
 * **Pending-confirmation convention:** an agent awaiting a yes/no stores `<agent_id>.pending` (dict with `created`) in MemoryService state; the Orchestrator routes short replies back to it for 15 minutes.
 * **`core.router.Router`**
   `classify_intent(user_input: str) -> str`
 * **`core.planner.Planner`**
   `run(target_agent: str, user_message: str) -> PlannerResult`
 * **`core.orchestrator.JarvisOrchestrator`**
-  `process_query(user_message: str) -> PlannerResult`
+  `process_query(user_message: str, channel: str = "terminal") -> PlannerResult`
 * **`Agent Protocol Interface`**
   `handle(action: str, payload: Dict[str, Any]) -> str`
 
@@ -270,6 +285,7 @@ To prevent API hallucination, all components must strictly interface with these 
 - Fail-Fast validation.
 - Least Privilege.
 - Traceability.
+- No inbound ports: every local service binds 127.0.0.1 only; phone access uses outbound Telegram long polling. Local API requires a bearer token and checks the Host header.
 
 ---
 
@@ -321,7 +337,8 @@ C:\jarvis
 .env                (gitignored)
 .env.example
 .gitignore
-jarvis.bat          (launcher, uses .venv automatically)
+jarvis.bat          (terminal client for Jarvis Core, uses .venv automatically)
+scripts/            (install_core.ps1 = autostart task "Jarvis Core", restart_core.ps1, check_autostart.ps1)
 docker/searxng/     (docker-compose.yml, config/settings.yml, .env secret - gitignored)
 requirements.txt
 README.md
@@ -329,6 +346,7 @@ SNAPSHOT.md
 
 agents/
     __init__.py
+    reminder_agent.py
     business_agent.py
     career_agent.py
     contentcreator_agent.py
@@ -337,24 +355,39 @@ agents/
     socialmediamanager_agent.py
     webdeveloper_agent.py
 
+clients/
+    __init__.py
+    terminal.py     (thin client: /chat + live events)
+
 core/
     __init__.py
+    api.py          (local FastAPI app)
+    clock.py
     config.py
+    events.py       (EventBus)
+    jarvis_core.py  (always-running background process)
     logger.py
-    orchestrator.py
+    orchestrator.py (+ standalone debug chat, refuses while core runs)
     planner.py
     router.py
+    scheduler.py    (thread in the core; standalone for troubleshooting)
+    single_instance.py
 
 data/               (gitignored)
+    api_token.txt   (local API token, auto-generated)
+    reminder_categories.txt
     documents/      (personal documents, category subfolders)
     jarvis_memory.db
     vector_store/   (ChromaDB)
 
 logs/
-    jarvis.log
+    jarvis_core.log       (Jarvis Core)
+    jarvis.log            (debug chat)
+    jarvis_scheduler.log  (standalone scheduler only)
 
 prompts/
     router.txt
+    reminder_agent.txt
     business_agent.txt
     career_agent.txt
     contentcreator_agent.txt
@@ -366,8 +399,11 @@ prompts/
 services/
     __init__.py
     memory_service.py
+    notification_service.py
     ollama_service.py
     prompt_loader.py
+    reminder_service.py
+    telegram_service.py
     vector_service.py
     web_search_service.py
 
@@ -379,7 +415,10 @@ templates/
 # Current Architecture
 
 ```
-                                       User (chat)
+                     Terminal (jarvis.bat)      Telegram (phone)      Desktop UI (planned)
+                               └───────────────────────┼───────────────────────┘
+                                                        ▼
+                         Jarvis Core (background process, local API on 127.0.0.1, live event feed)
                                             │
                                             ▼
                                    Jarvis Orchestrator
@@ -400,7 +439,7 @@ templates/
    Ollama                   Memory                     Vector                  WebSearch
 (chat+embed)               (SQLite)                  (ChromaDB)                (SearXNG)
 
-                  Reminder ◄── Scheduler (own process) ──► Notification
+                  Reminder ◄── Scheduler (thread in Core) ──► Notification
                     (SQLite)                            (Windows, Telegram)
 ```
 
@@ -453,9 +492,19 @@ Location: `services/vector_service.py`
 Responsibilities: Long-term memory. ChromaDB with `qwen3-embedding:0.6b`. Semantic search over all conversations (all agents) and personal documents in `data/documents/` (txt, md, pdf, docx; category = subfolder). Self-healing sync (new/deleted messages, new/changed/deleted files), automatic re-index on embedding model change, fail-soft. Retrieval: top 3 messages + top 3 chunks, relevance cutoff `VECTOR_MAX_DISTANCE` (0.55), short-term window excluded. CLI: `python -m services.vector_service [--search TEXT | --rebuild | --stats]`.
 Status: Verified (live test: relevant doc distance ~0.27, unrelated ~0.8).
 
-## ✅ Interactive Chat & Launcher
-`python -m core.orchestrator` runs an interactive chat (`Du >`, `exit` to quit, `--verbose` for console logs). `jarvis.bat` starts it with the project venv, no activation needed.
-Status: Verified.
+## ✅ Jarvis Core, Local API & Event Feed
+Locations: `core/jarvis_core.py`, `core/api.py`, `core/events.py`, `core/single_instance.py`, `scripts/install_core.ps1`
+One always-running process (pythonw, Task Scheduler task "Jarvis Core" at logon + 20 s delay, RunLevel Limited, restart on failure; replaces the old "Jarvis Scheduler" task). Startup: single-instance lock → scheduler thread (reminders work immediately) → local API → background startup: wait for Ollama (up to 5 min) → Orchestrator (memory sync) → Telegram thread → "🟢 Jarvis är online". Queries from all channels serialized by a lock (`query.queued` event when waiting). API: 127.0.0.1:8765, bearer token (`data/api_token.txt`, constant-time compare), TrustedHost (127.0.0.1/localhost), no CORS, no docs/OpenAPI, SSE stream with heartbeat that ends cleanly on shutdown. uvicorn warnings go to `logs/jarvis_core.log`; httpx INFO logging silenced (Telegram URLs contain the token).
+Status: Implemented, tested with fake Ollama (end-to-end: API, SSE, terminal client, lock refusal, graceful Ctrl+C); pending live verification.
+
+## ✅ Telegram Two-Way Chat
+Location: `services/telegram_service.py`
+Long polling (getUpdates, outbound HTTPS only). Answers only `TELEGRAM_CHAT_ID`; others ignored, logged and published as `security.rejected`. Setup mode (token, no chat id): a private /start gets its chat id back, nothing is executed. Messages older than 10 min (sent while offline) are not executed - the user is asked to resend. Offset saved in MemoryService state `telegram.offset` before handling (at-most-once). Typing indicator, replies split at 4000 chars, plain text, `/status`, `/hjalp`. Token never logged.
+Status: Implemented, tested with mocked Telegram API; pending live verification.
+
+## ✅ Terminal Client & Launcher
+`jarvis.bat` → `clients/terminal.py`: thin client of Jarvis Core (`Du >`, `/status`, `exit`; live dimmed "› ..." event lines while waiting, `--quiet` hides them). Waits while the core starts; explains how to start it if it is not running. `python -m core.orchestrator` remains as a standalone debug chat and refuses to run while the core holds the lock (two ChromaDB writers could corrupt the index).
+Status: Implemented; pending live verification.
 
 ## ✅ SearXNG (Docker)
 Location: `docker/searxng/`
@@ -507,10 +556,13 @@ Status: All 7 agents verified.
 | Orchestrator | ✅ |
 | MemoryService (short-term memory) | ✅ |
 | VectorService (long-term memory + documents) | ✅ |
-| Interactive chat + jarvis.bat | ✅ |
+| Terminal client + jarvis.bat | 🔧 Pending live test |
+| Jarvis Core + local API + EventBus | 🔧 Pending live test |
+| Telegram two-way chat | 🔧 Pending live test |
+| Autostart chain (Ollama, Docker/SearXNG, Jarvis task) | ✅ (re-check after install_core.ps1) |
 | SearXNG (Docker, hardened) | ✅ |
 | WebSearchService + date awareness | ✅ |
-| ReminderAgent + scheduler + notifications | 🔧 Pending live test |
+| ReminderAgent + scheduler + notifications | ✅ |
 | Full pipeline (`python -m core.orchestrator`) | ✅ |
 | Logging & Audit Trail | ✅ |
 | Intent classification | ✅ |
@@ -526,14 +578,12 @@ Known Issues: None.
 
 # Current Milestone
 
-Memory layer complete: short-term and long-term memory verified end-to-end. Jarvis is usable day-to-day via the interactive chat.
+Jarvis Core: Jarvis is always running in the background from login and reachable from the terminal and the phone (Telegram). The event feed that the visual interface will build on is in place.
 
 Completed in this phase:
-- MemoryService wired into Orchestrator and all 7 agents (shared instance via DI).
-- VectorService: long-term memory over all conversations + personal documents.
-- Switched chat model to qwen3:8b (thinking off by default via `OLLAMA_THINK`); agent timeout raised to 120s (`AGENT_TIMEOUT_SECONDS`) after timeouts caused duplicate retries.
-- Interactive chat mode and `jarvis.bat` launcher; `.env.example` added.
-- Test data removed from the memory database.
+- Web search (SearXNG) + date awareness; reminders with confirmation, scheduler and notifications.
+- `.gitattributes` line-ending normalization; autostart chain verified (`scripts/check_autostart.ps1`).
+- Jarvis Core (single memory owner) with local API, EventBus and Telegram two-way chat; terminal client.
 
 ---
 
@@ -550,25 +600,25 @@ vector_service.py (verified - long-term memory + documents, ChromaDB)
 web_search_service.py (verified - live web info via self-hosted SearXNG)
 reminder_service.py (implemented - reminders, recurrence)
 notification_service.py (implemented - Windows toast + Telegram channels)
-telegram_service.py (NEXT STEP - two-way Telegram chat = mobile access)
+telegram_service.py (implemented - two-way Telegram chat = mobile access)
 calendar_service.py (planned - Google Calendar, family calendars per category)
-api_service.py (planned - API for own Jarvis mobile app over Tailscale)
+core/api.py (implemented - local API; later exposed to the own mobile app over Tailscale)
 slack_service.py (planned - Slack integration for mobile connection)
 social_media_analytics_service.py (planned - Competitor analytics/data export fetcher)
 voice_service.py (planned)
 speech_to_text_service.py (planned)
 text_to_speech_service.py (planned)
-api_service.py (planned)
-notification_service.py (planned)
 ```
 
 ---
 
-# Next Milestone: Telegram (two-way) → Google Calendar
+# Roadmap (agreed order)
 
-1. **Telegram two-way chat:** chat with Jarvis from the phone through a private bot (long polling, outbound only, no open ports), locked to the owner's chat ID. Reuses Orchestrator.process_query; notifications already use TelegramChannel.
-2. **CalendarService (Google Calendar):** one calendar per category (each child, work, VerkstadsFlow, shared family calendar) shared with the wife (iPhone via Google account in iOS Calendar) and shown on an Android tablet. Jarvis picks the calendar/category and asks for confirmation; can also read the calendar ("vad har vi i helgen?"). OAuth with calendar-only scope, token stored locally. Starts on the current Google account; a new private account can be swapped in later.
-3. Later: Cal.com booking for VerkstadsFlow (on top of Google Calendar); own mobile app (FastAPI + Tailscale, PWA or .NET MAUI) as another notification/chat channel.
+1. **Visual desktop interface (NEXT):** web UI served by Jarvis Core on 127.0.0.1, shown in its own app window; desktop icon; tray icon (Jarvis keeps running in the background when the window closes); global hotkey (e.g. Ctrl+Alt+J) to bring it up; chat window for typing (quiet hours when the family sleeps); sound on/off toggle; live "second brain" map of the Orchestrator and agents driven by `/events/stream` (which agent works, web searches, memory lookups, reminders).
+2. **Voice:** local speech-to-text and text-to-speech, wake word "Hej Jarvis" (both hotkey and wake word wake Jarvis); respects the sound toggle.
+3. **CalendarService (Google Calendar):** start with the current Google account, move to a new private account later. One calendar per category (each child, family, Robin's work, wife's work, VerkstadsFlow), shared with the wife (iPhone via Google account in iOS Calendar) and shown on an Android tablet as family display. Jarvis picks the calendar from the category ("lägg in BVC-tid för ..."), always with confirmation.
+4. Later: Cal.com booking for VerkstadsFlow (on top of Google Calendar); own mobile app (Jarvis Core API over Tailscale, PWA or .NET MAUI) as another chat/notification channel; social media analytics.
+5. **Computer hardening (after the setup is complete):** review open ports (`netstat -abno`) and close what is not needed; stricter Windows Firewall rules (block inbound by default, verify Docker/SearXNG and Jarvis stay on 127.0.0.1); review autostart programs; consider BitLocker (with the recovery key stored safely). Constraint: family members use the computer with automatic login and no separate accounts, so measures must not add logins.
 
 ---
 

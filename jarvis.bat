@@ -1,5 +1,6 @@
 @echo off
-REM Starts the Jarvis chat using the project's own virtual environment.
+REM Chat with Jarvis. Jarvis Core runs in the background (Task Scheduler task
+REM "Jarvis Core"); this window is only a client that talks to it.
 REM No venv activation needed - double-click this file or run: jarvis
 cd /d "%~dp0"
 
@@ -10,7 +11,7 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-".venv\Scripts\python.exe" -m core.orchestrator %*
+".venv\Scripts\python.exe" -m clients.terminal %*
 
-REM Keep the window open if Jarvis crashed, so the error can be read.
+REM Keep the window open on errors, so the message can be read.
 if errorlevel 1 pause

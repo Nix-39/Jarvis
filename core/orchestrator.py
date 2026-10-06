@@ -8,9 +8,11 @@ User Request -> Intent Classification (Router) -> Category Mapping -> Execution 
 """
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Final, Optional
 
+from core.events import event_bus
 from core.logger import get_logger
 from core.planner import Agent, Planner, PlannerResult
 from core.router import Router
@@ -167,25 +169,33 @@ class JarvisOrchestrator:
             list(self.agent_registry.keys()),
         )
 
-    def process_query(self, user_message: str) -> PlannerResult:
+    def process_query(self, user_message: str, channel: str = "terminal") -> PlannerResult:
         """
         Process a user query through the complete execution pipeline:
         Router Intent Classification -> Category Mapping -> Planner Execution -> Result.
 
         :param user_message: Raw input text query from the user.
+        :param channel: Where the query came from ("terminal", "telegram", "ui") - for the event feed.
         :return: Immutable PlannerResult containing execution metadata and final response.
         """
         # Format clean display preview for single-line audit logging
         preview = user_message.strip() if user_message else ""
         display_input = preview[:50] + ("..." if len(preview) > 50 else "")
         logger.info(f"Processing user query: '{display_input}'")
+        event_bus.publish(
+            "query.received", "orchestrator", f"Ny fråga via {channel}: {display_input}", channel=channel
+        )
 
         # Step 0: A short reply to an agent that is waiting for confirmation goes
         #         straight back to that agent (e.g. "ja" after a reminder proposal).
         pending_agent_id = self._agent_awaiting_reply(user_message)
         if pending_agent_id:
             logger.info(f"Routing reply to agent awaiting confirmation: '{pending_agent_id}'.")
-            return self.planner.run(target_agent=pending_agent_id, user_message=user_message)
+            event_bus.publish(
+                "agent.selected", "orchestrator", f"Svar på väntande fråga → {pending_agent_id}",
+                agent=pending_agent_id, category=None, reason="pending_reply",
+            )
+            return self._run(pending_agent_id, user_message)
 
         # Step 1: Classify request intent category via Router
         category = self.router.classify_intent(user_message)
@@ -202,9 +212,25 @@ class JarvisOrchestrator:
             target_agent_id = self.DEFAULT_AGENT_ID
 
         logger.info(f"Routed category '{category}' mapped to target agent '{target_agent_id}'.")
+        event_bus.publish(
+            "agent.selected", "orchestrator", f"Kategori '{category}' → {target_agent_id}",
+            agent=target_agent_id, category=category, reason="router",
+        )
 
         # Step 3: Pass execution plan to Planner
-        return self.planner.run(target_agent=target_agent_id, user_message=user_message)
+        return self._run(target_agent_id, user_message)
+
+    def _run(self, agent_id: str, user_message: str) -> PlannerResult:
+        """Run the agent through the Planner and report the outcome on the event feed."""
+        started = time.monotonic()
+        result = self.planner.run(target_agent=agent_id, user_message=user_message)
+        seconds = round(time.monotonic() - started, 1)
+        event_bus.publish(
+            "query.completed", "orchestrator",
+            f"{agent_id} svarade på {seconds}s" if result.success else f"{agent_id} misslyckades",
+            agent=agent_id, success=result.success, seconds=seconds,
+        )
+        return result
 
     def _agent_awaiting_reply(self, user_message: str) -> Optional[str]:
         """
@@ -232,9 +258,20 @@ class JarvisOrchestrator:
 
 
 if __name__ == "__main__":
-    # Interactive chat with Jarvis:  python -m core.orchestrator [--verbose]
+    # Standalone debug chat:  python -m core.orchestrator [--verbose]
+    # Normal use goes through Jarvis Core (jarvis.bat -> clients.terminal). This
+    # mode refuses to start while the core runs: two processes writing the same
+    # long-term memory (ChromaDB) at once can corrupt it.
     import logging
     import sys
+
+    from core.single_instance import acquire_lock
+
+    instance_lock = acquire_lock()
+    if instance_lock is None:
+        print("Jarvis Core körs redan i bakgrunden - använd jarvis.bat istället.")
+        print("(Felsökningsläget kan bara köras när Jarvis Core är stoppad.)")
+        sys.exit(0)
 
     EXIT_COMMANDS = {"exit", "quit", "avsluta", "hejdå", "hej då"}
 
@@ -245,7 +282,7 @@ if __name__ == "__main__":
             if type(handler) is logging.StreamHandler:
                 handler.setLevel(logging.WARNING)
 
-    print("=== JARVIS ===")
+    print("=== JARVIS (felsökningsläge, utan Jarvis Core) ===")
     print("Startar och synkar långtidsminnet...")
     orchestrator = JarvisOrchestrator()
     print("Redo. Skriv din fråga ('exit' eller Ctrl+C avslutar).")
@@ -258,7 +295,7 @@ if __name__ == "__main__":
             if user_input.lower() in EXIT_COMMANDS:
                 break
 
-            result = orchestrator.process_query(user_input)
+            result = orchestrator.process_query(user_input, channel="debug")
             print(
                 f"\nJarvis [{result.agent_used} · {result.execution_time_seconds:.1f}s] >\n"
                 f"{result.final_response}"
