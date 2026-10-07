@@ -86,6 +86,16 @@ class Config:
     DESKTOP_HOTKEY = os.getenv("DESKTOP_HOTKEY", "ctrl+alt+j")
 
     # ------------------------------------------------------
+    # Encrypted backup of data/ (BackupService, runs inside Jarvis Core)
+    # ------------------------------------------------------
+    # Folder on ANOTHER disk, e.g. D:\YggdrasilBackup. Empty = backups off.
+    BACKUP_DIR = os.getenv("BACKUP_DIR", "").strip()
+    # Secret - only in .env. Keep a copy outside the computer: without it no backup can be opened.
+    BACKUP_PASSPHRASE = os.getenv("BACKUP_PASSPHRASE", "")
+    BACKUP_TIME = os.getenv("BACKUP_TIME", "03:00")        # local time, HH:MM
+    BACKUP_KEEP = int(os.getenv("BACKUP_KEEP", "14"))     # number of backups to keep
+
+    # ------------------------------------------------------
     # Execution limits
     # ------------------------------------------------------
     # Max seconds one agent step may run before the Planner retries it.

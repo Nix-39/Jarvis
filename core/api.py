@@ -29,6 +29,7 @@ everything personal goes through the token-protected endpoints below):
     GET|PATCH /settings                   display names, people, background, sound
     GET  /documents/folders, PUT /documents?folder=&name=   (raw file body)
     GET|PUT|DELETE /assets/background, GET|PUT /people/{id}/photo   (raw image body)
+    GET  /backup/status, POST /backup/run
     GET  /calendar/events?start=&end=, DELETE /calendar/events/{id}[?occurrence=YYYY-MM-DD], DELETE /reminders/{id}
 """
 
@@ -296,6 +297,28 @@ def _add_desktop_routes(app: FastAPI, core: "JarvisCore", authorized: list) -> N
         if hi - lo > timedelta(days=400):
             raise HTTPException(status_code=400, detail="För stort intervall.")
         return [e.to_dict() for e in core.calendar.between(lo, hi)]
+
+    @app.get("/backup/status", dependencies=authorized)
+    def backup_status() -> dict[str, Any]:
+        return core.backup.status()
+
+    @app.post("/backup/run", dependencies=authorized)
+    def backup_run() -> dict[str, Any]:
+        """Start a backup now (in the background - progress comes as backup.* events)."""
+        if core.backup.running:
+            return {"started": False, "reason": "En backup körs redan."}
+        problem = core.backup.problem()
+        if problem:
+            raise HTTPException(status_code=409, detail=problem)
+
+        def worker() -> None:
+            try:
+                core.backup.run("ui")
+            except Exception:
+                pass   # logged and published as backup.failed
+
+        threading.Thread(target=worker, name="jarvis-backup-now", daemon=True).start()
+        return {"started": True}
 
     @app.delete("/reminders/{reminder_id}", dependencies=authorized)
     def delete_reminder(reminder_id: int) -> dict[str, bool]:

@@ -197,10 +197,30 @@ async function openMimer() {
     <div class="stat"><span>Mappar</span><b>${folders.length ? esc(folders.slice(0, 8).join(' · ')) : '–'}</b></div>
     <div class="dropzone">Dra och släpp dokument (txt, md, pdf, docx) var som helst i fönstret – ${esc(oden())} frågar var de ska sparas och lär sig innehållet.</div>`);
 }
-function openHvergelmer() {
-  openPanel(`<h3><span>HVERGELMER · SÄKERHET</span><button data-close>✕</button></h3>
+function backupHTML(b) {
+  if (!b) return '<div class="chk"><span>💾</span><div>Backup<small>Kunde inte läsa status.</small></div></div>';
+  if (!b.configured) return `<div class="chk warn"><span>💾</span><div>Backup är inte påslagen<small>Sätt BACKUP_DIR (en mapp på din andra disk) och BACKUP_PASSPHRASE i .env och starta om kärnan.</small></div></div>`;
+  const when = b.last_backup ? new Date(b.last_backup) : null;
+  const dayOf = (d) => dayLabel(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+  const ok = !b.last_error && !b.problem && when && Date.now() - when < 36 * 3600e3;
+  const next = b.next_run ? new Date(b.next_run) : null;
+  const info = b.running ? 'Backup pågår…' : b.problem || b.last_error
+    || `${b.count} sparade (${(b.total_size / 1048576).toFixed(1)} MB) i ${b.dir}${next ? ` · nästa ${dayOf(next).toLowerCase()} ${next.toTimeString().slice(0, 5)}` : ''}`;
+  return `<div class="chk${ok ? '' : ' warn'}"><span>${b.running ? '⏳' : ok ? '✅' : '⚠️'}</span><div>Krypterad backup · senast ${when ? `${esc(dayOf(when).toLowerCase())} ${when.toTimeString().slice(0, 5)}` : 'ingen än'}
+    <small>${esc(info)}${b.same_disk ? ' · OBS: samma disk som Yggdrasil – välj en annan disk' : ''}</small>
+    <button class="cbtn backupbtn" id="backupNow" ${b.running || b.problem ? 'disabled' : ''}>Kör backup nu</button></div></div>`;
+}
+async function openHvergelmer() {
+  let backup = null;
+  try { backup = await api('/backup/status'); } catch { /* shown as unknown */ }
+  openPanel(`<h3><span>HVERGELMER · SÄKERHET</span><button data-close>✕</button></h3>${backupHTML(backup)}
     <div class="chk"><span>🛡️</span><div>Säkerhetskontrollerna byggs i ett senare steg<small>Brandvägg, öppna portar, Defender, autostart och uppdateringar – med förslag du kan skjuta upp eller ignorera.</small></div></div>
     <div class="chk"><span>${state.securityRejected ? '⚠️' : '✅'}</span><div>Okända avsändare på Telegram sedan start: ${state.securityRejected}<small>Yggdrasil svarar bara din egen chatt.</small></div></div>`);
+  const btn = $('backupNow');
+  if (btn) btn.onclick = async (e) => {
+    e.stopPropagation(); btn.disabled = true; btn.textContent = 'Startar…';
+    try { await api('/backup/run', { method: 'POST' }); } catch (err) { sys(`Backup: ${err.message}`); btn.disabled = false; btn.textContent = 'Kör backup nu'; }
+  };
 }
 
 /* =====================================================================
@@ -381,6 +401,13 @@ function onEvent(ev) {
     case 'reminder.created': case 'reminder.cancelled': sys(`⏰ ${ev.message}`); fire('root', 'urd'); refreshCalendar(); break;
     case 'calendar.created': case 'calendar.updated': case 'calendar.cancelled': sys(`📅 ${ev.message}`); fire('root', 'urd'); refreshCalendar(); break;
     case 'reminder.delivered': sys(`⏰ ${ev.message}`); tree.pulseWell('urd'); toast('⏰ PÅMINNELSE', ev.message.replace(/^Påminnelse skickad: /, '')); play('reminder'); refreshCalendar(); break;
+    case 'backup.started': step(ev.message); tree.pulseWell('hvergelmer'); break;
+    case 'backup.completed': case 'backup.failed': {
+      const failed = ev.type === 'backup.failed';
+      sys(`${failed ? '⚠️' : '💾'} ${ev.message}`); tree.pulseWell('hvergelmer');
+      if (failed) toast('⚠️ BACKUP', ev.message);
+      if (panel.classList.contains('open') && panel.textContent.includes('HVERGELMER')) openHvergelmer();
+      break; }
     case 'lesson.added': case 'lesson.removed': sys(`📜 ${ev.message}`); tree.pulseWell('mimer'); break;
     case 'memory.synced': sys('Långtidsminnet uppdaterat'); tree.pulseWell('mimer'); break;
     case 'memory.document_added': sys(`📄 ${ev.message}`); tree.pulseWell('mimer'); break;

@@ -1,5 +1,5 @@
 # PROJECT SNAPSHOT
-**Last updated:** 2026-10-07 (family calendar Urd)
+**Last updated:** 2026-10-07 (calendar Urd, lessons, encrypted backup)
 
 ---
 
@@ -254,7 +254,7 @@ To prevent API hallucination, all components must strictly interface with these 
   `check_once(now=None) -> int`, `run_forever(stop: Optional[threading.Event] = None)`
 * **`core.events.event_bus`** (singleton `EventBus`)
   `publish(type, source, message, **data) -> Optional[Event]` (never raises), `subscribe() -> queue.Queue`, `unsubscribe(q)`, `recent(after_id=0, limit=200) -> list[Event]`
-  Event types: `core.starting|online|offline|failed`, `query.received|queued|completed`, `agent.selected`, `memory.lookup|synced`, `websearch.query|results|failed`, `reminder.created|delivered|cancelled`, `calendar.created|updated|cancelled`, `lesson.added|removed`, `security.rejected`
+  Event types: `core.starting|online|offline|failed`, `query.received|queued|completed`, `agent.selected`, `memory.lookup|synced`, `websearch.query|results|failed`, `reminder.created|delivered|cancelled`, `calendar.created|updated|cancelled`, `lesson.added|removed`, `backup.started|completed|failed`, `security.rejected`
 * **`core.single_instance`**
   `acquire_lock() -> Optional[socket]`, `lock_is_held() -> bool`
 * **`core.jarvis_core.JarvisCore`**
@@ -511,6 +511,15 @@ Desktop app: pywebview window (WebView2), token only via JS bridge (`get_token`)
 UI: tree variant 2 with cached branches, rune ring, blaster bolts crown→agent / root→wells, wells Mimer/Urd/Hvergelmer, family nodes (rolling 7 days from reminders + calendar), Urd calendar (see Family Calendar below), log with history paging + Telegram messages + steps toggle + search, chat via `/chat` (channel `ui`), file drop → Oden asks folder, background image + 7 sliders, sound levels per category + master mute (persisted). Weather, sports ticker, mail, Slack and Hvergelmer checks are placeholders/hidden until their steps.
 Status: Verified live on Windows by the user (window, tray, hotkey, UI).
 
+## ✅ Encrypted Backup
+Location: `services/backup_service.py` (`BackupService`), thread `backup` in Jarvis Core, API `GET /backup/status`, `POST /backup/run`, Hvergelmer panel (status + "Kör backup nu"), `/status` line on Telegram.
+Config (.env): `BACKUP_DIR` (folder on another disk, empty = off), `BACKUP_PASSPHRASE` (≥12 chars, secret), `BACKUP_TIME` 03:00, `BACKUP_KEEP` 14. Refuses a target inside data/; warns when on the same drive as Jarvis.
+Content: data/ except vector_store (derived), -wal/-shm/-journal/.tmp/.part; every `*.db` via SQLite backup API + `serialize()`; empty folders kept. Format `.ygg`: header `YGGBAK1\n` | salt 16 | scrypt log2N=16,r=8,p=1 | nonce prefix 7; chunks of ≤1 MiB tar.gz sealed with AES-256-GCM (nonce = prefix|counter|final flag, AAD = header) – streamed, nothing unencrypted on disk. Written as `.ygg.part`, fsynced, fully decrypted/verified (entry count), then renamed; prune to newest N.
+Schedule: first backup right away when none exists; then daily at BACKUP_TIME, or immediately after a missed night; retry 1 h after a failure; failure notification (toast/Telegram) at most every 12 h. Events `backup.started|completed|failed`.
+CLI: `python -m services.backup_service status|run|verify <file>|restore <file> <empty dir>` (restore verifies first, extracts with tarfile `filter="data"`, never into live data/). Requires package `cryptography`.
+Status: Implemented, tested (round-trip, wrong passphrase, tampering, truncation, pruning, failure path, API, UI); pending live verification.
+Decision: no PIN lock – family risk is low and constant code entry would get in the way; the coming password vault gets its own master password.
+
 ## ✅ Lessons ("lärdomar") – the user teaches Oden
 Locations: `services/lessons_service.py` (`LessonBook`, singleton `lesson_book`), `agents/lessons_agent.py` (`LessonsAgent`, agent id `lessons_agent`, display name = Oden).
 Lessons live one per line in `data/lessons.md` (`- [scope] text`, hand-editable, re-read on mtime change, max 60 × 300 chars). Scopes: alla (all agents except router), oden (router), kalender, påminnelser, allmänt, utbildning, karriär, business, webb, sociala medier, content. `lesson_book.block_for(agent_id)` is appended after `{self.system_prompt}` in every agent prompt and in the router prompt ("follow unless they conflict with the System Instructions"). Fail-soft.
@@ -585,6 +594,7 @@ Status: All 7 agents verified.
 | Desktop interface Yggdrasil (window, tray, hotkey, live brain map) | ✅ |
 | Family calendar Urd (CalendarService + CalendarAgent + day/week/month UI) | 🔧 Pending live test |
 | Lessons (LessonBook + LessonsAgent, data/lessons.md) | 🔧 Pending live test |
+| Encrypted backup (BackupService, AES-256-GCM, restore CLI) | 🔧 Pending live test |
 | Autostart chain (Ollama, Docker/SearXNG, Jarvis task) | ✅ (re-check after install_core.ps1) |
 | SearXNG (Docker, hardened) | ✅ |
 | WebSearchService + date awareness | ✅ |
@@ -640,7 +650,7 @@ text_to_speech_service.py (planned)
 
 # Roadmap (agreed order)
 
-1. **Visual desktop interface – step 1 DONE (verified).** **Urd local calendar DONE (pending live test).** Next: **step 2** encrypted nightly backup of `data/` to another internal disk + PIN lock for sensitive panels; **step 3** weather (SMHI open data) + sports ticker (ESPN public scoreboard endpoints, swappable provider, leagues editable via Oden). Original scope: web UI served by Jarvis Core on 127.0.0.1, shown in its own app window; desktop icon; tray icon (Jarvis keeps running in the background when the window closes); global hotkey (e.g. Ctrl+Alt+J) to bring it up; chat window for typing (quiet hours when the family sleeps); sound on/off toggle; live "second brain" map of the Orchestrator and agents driven by `/events/stream` (which agent works, web searches, memory lookups, reminders).
+1. **Visual desktop interface – step 1 DONE (verified).** **Urd local calendar, lessons and encrypted backup DONE (pending live test); PIN lock dropped.** Next: **step 3** weather (SMHI open data) + sports ticker (ESPN public scoreboard endpoints, swappable provider, leagues editable via Oden). Original scope: web UI served by Jarvis Core on 127.0.0.1, shown in its own app window; desktop icon; tray icon (Jarvis keeps running in the background when the window closes); global hotkey (e.g. Ctrl+Alt+J) to bring it up; chat window for typing (quiet hours when the family sleeps); sound on/off toggle; live "second brain" map of the Orchestrator and agents driven by `/events/stream` (which agent works, web searches, memory lookups, reminders).
 2. **Voice:** local speech-to-text and text-to-speech, wake word "Hej Jarvis" (both hotkey and wake word wake Jarvis); respects the sound toggle.
 3. **Google Calendar sync on top of the local Urd calendar:** start with the current Google account, move to a new private account later. One calendar per category (each child, family, Robin's work, wife's work, VerkstadsFlow), shared with the wife (iPhone via Google account in iOS Calendar) and shown on an Android tablet as family display. Jarvis picks the calendar from the category ("lägg in BVC-tid för ..."), always with confirmation.
 4. Later: Cal.com booking for VerkstadsFlow (on top of Google Calendar); own mobile app (Jarvis Core API over Tailscale, PWA or .NET MAUI) as another chat/notification channel; social media analytics.

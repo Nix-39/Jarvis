@@ -62,6 +62,7 @@ class JarvisCore:
     ) -> None:
         from core.scheduler import Scheduler
         from services.notification_service import NotificationService
+        from services.backup_service import BackupService
         from services.calendar_service import CalendarService
         from services.reminder_service import ReminderService
         from services.system_monitor import SystemMonitor
@@ -74,6 +75,7 @@ class JarvisCore:
         self.ui_settings = UiSettingsService()
         self.calendar = CalendarService()
         self.system_monitor = SystemMonitor()
+        self.backup = BackupService(notify=self.notifications.notify)
         self.orchestrator: Any = None
         self.telegram: Any = None
         self.ready = False
@@ -90,6 +92,7 @@ class JarvisCore:
     def start_scheduler(self) -> None:
         """Reminders first: they need neither Ollama nor the vector index."""
         self._start_thread("scheduler", self.scheduler.run_forever, self._stop)
+        self._start_thread("backup", self.backup.run_forever, self._stop)
 
     def start_brain(self, orchestrator: Any = None) -> None:
         """Wait for Ollama, start the Orchestrator and the Telegram bot. Raises on fatal errors."""
@@ -191,6 +194,7 @@ class JarvisCore:
             "searxng": searxng,
             "telegram": telegram,
             "scheduler": self._thread_alive("scheduler"),
+            "backup": self.backup.status(),
             "busy": self._query_lock.locked(),
             "upcoming_reminders": [
                 {"id": r.id, "text": r.text, "due": format_datetime_sv(r.due_at), "category": r.category}
@@ -212,6 +216,7 @@ class JarvisCore:
             f"Webbsök (SearXNG): {mark(s['searxng'])}",
             f"Påminnelser: {mark(s['scheduler'])}",
             f"Telegram: {s['telegram']}",
+            "Backup: " + backup_text(s["backup"]),
         ]
         if s["upcoming_reminders"]:
             lines.append("\nKommande påminnelser:")
@@ -228,6 +233,17 @@ class JarvisCore:
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
+
+def backup_text(b: dict[str, Any]) -> str:
+    if not b["configured"]:
+        return "av"
+    if b["last_error"]:
+        return f"❌ {b['last_error']}"
+    if not b["last_backup"]:
+        return "ingen än"
+    when = datetime.fromisoformat(b["last_backup"])
+    return f"✅ {format_datetime_sv(when.astimezone())} ({b['count']} sparade)"
+
 
 def ollama_is_up(host: str) -> bool:
     try:

@@ -109,6 +109,22 @@ Security: the interface is a web page served by the core on `127.0.0.1` and show
 - **Notifications as channels** (`NotificationService`): Windows toast and Telegram today, a future Jarvis mobile app plugs in as another channel. Notification text is passed to PowerShell via environment variables and XML-escaped, never interpolated into a command.
 - **Categories** live in `data/reminder_categories.txt` (private). Reminders store a reserved `calendar_event_id` for the upcoming Google Calendar integration.
 
+## Encrypted backup
+
+Every night (03:00, or as soon as the computer is on after a missed night) Jarvis Core backs up `data/` to a folder on another disk:
+
+- **What:** the memory database, calendar, reminders, lessons, settings, photos and documents. The vector index is skipped (it is rebuilt from the database and documents). SQLite is copied with its own backup API, so the copy is consistent while Jarvis runs.
+- **How:** the tar.gz stream goes straight through **AES-256-GCM** in 1 MiB chunks – nothing unencrypted touches the disk. The key comes from `BACKUP_PASSPHRASE` via **scrypt** with a new random salt per backup. Every chunk is authenticated and the last one is marked final, so a wrong passphrase, a changed file or a truncated file is detected.
+- **Checked:** each backup is decrypted and read through before it gets its final name; the newest 14 are kept. A failure is shown in Hvergelmer and sent as a Windows/Telegram notification.
+- **Restore** (never touches the live data folder):
+  ```
+  python -m services.backup_service verify  D:\YggdrasilBackup\yggdrasil-20261008-030000.ygg
+  python -m services.backup_service restore D:\YggdrasilBackup\yggdrasil-20261008-030000.ygg C:\restore
+  ```
+  Unpacking refuses absolute paths, `..` and links outside the target folder.
+
+Keep a copy of the passphrase outside the computer – without it no backup can be opened.
+
 ## Teaching Oden – lessons
 
 You can teach Oden in plain Swedish instead of changing code:
@@ -195,6 +211,7 @@ jarvis/
 │   ├── ollama_service.py   # chat() + embed()
 │   ├── prompt_loader.py
 │   ├── memory_service.py   # Short-term memory (SQLite)
+│   ├── backup_service.py   # Encrypted nightly backup of data/ (AES-256-GCM)
 │   ├── calendar_service.py # Family calendar Urd (SQLite: bookings, shifts, matches)
 │   ├── lessons_service.py  # The user's lessons for Oden (data/lessons.md)
 │   ├── notification_service.py  # Windows toast + Telegram channels
@@ -299,6 +316,9 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | `OLLAMA_STARTUP_WAIT_SECONDS` | `300` | How long the core waits for Ollama at login |
 | `DESKTOP_HOTKEY` | `ctrl+alt+j` | Global hotkey that brings up the Yggdrasil window |
 | `LOG_LEVEL` | `INFO` | Log verbosity |
+| `BACKUP_DIR` | *(empty)* | Folder on another disk for the encrypted backup (empty = off) |
+| `BACKUP_PASSPHRASE` | *(empty)* | Secret, ≥ 12 characters – keep a copy outside the computer |
+| `BACKUP_TIME` / `BACKUP_KEEP` | `03:00` / `14` | Nightly time and number of backups kept |
 
 ## Status
 
@@ -318,7 +338,7 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | Desktop interface "Yggdrasil" (brain map, log/chat, family column, tray, hotkey) | ✅ Verified |
 | Family calendar Urd (bookings, work shifts, referee matches, day/week/month views) | ✅ Implemented |
 | Lessons – teach Oden in plain Swedish (data/lessons.md) | ✅ Implemented |
-| Encrypted nightly backup + PIN lock for sensitive panels | 📋 Planned (next) |
+| Encrypted nightly backup of data/ (AES-256-GCM, verified, restore CLI) | ✅ Implemented |
 | Weather (SMHI) + sports results ticker (ESPN) | 📋 Planned |
 | Hvergelmer security checks, Gmail, Slack, morning briefing | 📋 Planned |
 | Google Calendar (family calendars, categories) | 📋 Planned |
