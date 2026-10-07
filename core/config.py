@@ -79,6 +79,13 @@ class Config:
     OLLAMA_STARTUP_WAIT_SECONDS = int(os.getenv("OLLAMA_STARTUP_WAIT_SECONDS", "300"))
 
     # ------------------------------------------------------
+    # Desktop interface (served by the core, shown by clients/desktop.py)
+    # ------------------------------------------------------
+    UI_DIR = BASE_DIR / "ui"                   # static files (public, no secrets)
+    UI_DATA_DIR = BASE_DIR / "data" / "ui"     # private: settings, background, photos
+    DESKTOP_HOTKEY = os.getenv("DESKTOP_HOTKEY", "ctrl+alt+j")
+
+    # ------------------------------------------------------
     # Execution limits
     # ------------------------------------------------------
     # Max seconds one agent step may run before the Planner retries it.
@@ -120,6 +127,7 @@ class Config:
             cls.SERVICES_DIR,
             cls.DOCUMENTS_DIR,
             cls.VECTOR_STORE_DIR,
+            cls.UI_DATA_DIR,
         ]
         
         for directory in system_dirs:

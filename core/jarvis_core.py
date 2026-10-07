@@ -63,11 +63,15 @@ class JarvisCore:
         from core.scheduler import Scheduler
         from services.notification_service import NotificationService
         from services.reminder_service import ReminderService
+        from services.system_monitor import SystemMonitor
+        from services.ui_settings import UiSettingsService
 
         self.started_at = datetime.now(timezone.utc)
         self.reminders = reminder_service or ReminderService()
         self.notifications = notification_service or NotificationService()
         self.scheduler = Scheduler(self.reminders, self.notifications)
+        self.ui_settings = UiSettingsService()
+        self.system_monitor = SystemMonitor()
         self.orchestrator: Any = None
         self.telegram: Any = None
         self.ready = False

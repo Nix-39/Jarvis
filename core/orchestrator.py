@@ -183,7 +183,8 @@ class JarvisOrchestrator:
         display_input = preview[:50] + ("..." if len(preview) > 50 else "")
         logger.info(f"Processing user query: '{display_input}'")
         event_bus.publish(
-            "query.received", "orchestrator", f"Ny fråga via {channel}: {display_input}", channel=channel
+            "query.received", "orchestrator", f"Ny fråga via {channel}: {display_input}",
+            channel=channel, text=preview[:2000],
         )
 
         # Step 0: A short reply to an agent that is waiting for confirmation goes
@@ -195,7 +196,7 @@ class JarvisOrchestrator:
                 "agent.selected", "orchestrator", f"Svar på väntande fråga → {pending_agent_id}",
                 agent=pending_agent_id, category=None, reason="pending_reply",
             )
-            return self._run(pending_agent_id, user_message)
+            return self._run(pending_agent_id, user_message, channel)
 
         # Step 1: Classify request intent category via Router
         category = self.router.classify_intent(user_message)
@@ -218,9 +219,9 @@ class JarvisOrchestrator:
         )
 
         # Step 3: Pass execution plan to Planner
-        return self._run(target_agent_id, user_message)
+        return self._run(target_agent_id, user_message, channel)
 
-    def _run(self, agent_id: str, user_message: str) -> PlannerResult:
+    def _run(self, agent_id: str, user_message: str, channel: str = "terminal") -> PlannerResult:
         """Run the agent through the Planner and report the outcome on the event feed."""
         started = time.monotonic()
         result = self.planner.run(target_agent=agent_id, user_message=user_message)
@@ -228,7 +229,8 @@ class JarvisOrchestrator:
         event_bus.publish(
             "query.completed", "orchestrator",
             f"{agent_id} svarade på {seconds}s" if result.success else f"{agent_id} misslyckades",
-            agent=agent_id, success=result.success, seconds=seconds,
+            agent=agent_id, success=result.success, seconds=seconds, channel=channel,
+            text=user_message.strip()[:120], reply=(result.final_response or "")[:4000],
         )
         return result
 

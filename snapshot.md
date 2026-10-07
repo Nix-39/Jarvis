@@ -1,5 +1,5 @@
 # PROJECT SNAPSHOT
-**Last updated:** 2026-10-06 (Jarvis Core + Telegram)
+**Last updated:** 2026-10-06 (desktop interface Yggdrasil – step 1)
 
 ---
 
@@ -502,6 +502,13 @@ Location: `services/telegram_service.py`
 Long polling (getUpdates, outbound HTTPS only). Answers only `TELEGRAM_CHAT_ID`; others ignored, logged and published as `security.rejected`. Setup mode (token, no chat id): a private /start gets its chat id back, nothing is executed. Messages older than 10 min (sent while offline) are not executed - the user is asked to resend. Offset saved in MemoryService state `telegram.offset` before handling (at-most-once). Typing indicator, replies split at 4000 chars, plain text, `/status`, `/hjalp`. Token never logged.
 Status: Implemented, tested with mocked Telegram API; pending live verification.
 
+## ✅ Desktop Interface "Yggdrasil" (step 1 of 3)
+Locations: `ui/` (index.html, app.css, js/app.js, api.js, tree.js, runes.js, effects.js, calendar.js, assets/yggdrasil.ico|png), `clients/desktop.py`, `services/ui_settings.py`, `services/system_monitor.py`, `scripts/install_desktop.ps1`. Full design: project doc `claude/yggdrasil-ui-design.md`.
+System display name Yggdrasil, orchestrator Oden (names in `data/ui/settings.json`). Core serves static UI at `/app` (public, no data) + token-protected endpoints: `/agents`, `/settings` (GET/PATCH, pydantic-validated), `/history`, `/system` (nvidia-smi), `/memory/stats`, `/reminders/upcoming` (person mapped by name in category/text), `/documents/folders`, `PUT /documents` (raw body, txt/md/pdf/docx ≤25 MB, safe folder/filename, triggers vector sync), `/assets/background` (GET/PUT/DELETE, magic-byte check), `/people/photos`, `/people/{id}/photo`. Security headers incl. strict CSP. Events enriched: `query.received` has `text`, `query.completed` has `channel`, `text`, `reply` (Telegram conversations show live in the log).
+Desktop app: pywebview window (WebView2), token only via JS bridge (`get_token`), `open_url` allowlist, close = hide, pystray tray icon, global hotkey via RegisterHotKey (no keyboard hook), single instance on 127.0.0.1:47832 (second launch sends SHOW), `--hidden` at login (task "Yggdrasil Desktop", 40 s delay), desktop shortcut with icon.
+UI: tree variant 2 with cached branches, rune ring, blaster bolts crown→agent / root→wells, wells Mimer/Urd/Hvergelmer, family nodes (rolling 7 days from reminders), Urd week/month calendar with ISO weeks + person filters, log with history paging + Telegram messages + steps toggle + search, chat via `/chat` (channel `ui`), file drop → Oden asks folder, background image + 7 sliders, sound levels per category + master mute (persisted). Weather, sports ticker, mail, Slack and Hvergelmer checks are placeholders/hidden until their steps.
+Status: Implemented, tested in container with fake Ollama and a fake desktop bridge (endpoints, validation, live events, UI rendering); desktop window/tray/hotkey pending live verification on Windows.
+
 ## ✅ Terminal Client & Launcher
 `jarvis.bat` → `clients/terminal.py`: thin client of Jarvis Core (`Du >`, `/status`, `exit`; live dimmed "› ..." event lines while waiting, `--quiet` hides them). Waits while the core starts; explains how to start it if it is not running. `python -m core.orchestrator` remains as a standalone debug chat and refuses to run while the core holds the lock (two ChromaDB writers could corrupt the index).
 Status: Implemented; pending live verification.
@@ -558,7 +565,8 @@ Status: All 7 agents verified.
 | VectorService (long-term memory + documents) | ✅ |
 | Terminal client + jarvis.bat | 🔧 Pending live test |
 | Jarvis Core + local API + EventBus | 🔧 Pending live test |
-| Telegram two-way chat | 🔧 Pending live test |
+| Telegram two-way chat | ✅ |
+| Desktop interface Yggdrasil (window, tray, hotkey, live brain map) | 🔧 Pending live test |
 | Autostart chain (Ollama, Docker/SearXNG, Jarvis task) | ✅ (re-check after install_core.ps1) |
 | SearXNG (Docker, hardened) | ✅ |
 | WebSearchService + date awareness | ✅ |
@@ -614,7 +622,7 @@ text_to_speech_service.py (planned)
 
 # Roadmap (agreed order)
 
-1. **Visual desktop interface (NEXT):** web UI served by Jarvis Core on 127.0.0.1, shown in its own app window; desktop icon; tray icon (Jarvis keeps running in the background when the window closes); global hotkey (e.g. Ctrl+Alt+J) to bring it up; chat window for typing (quiet hours when the family sleeps); sound on/off toggle; live "second brain" map of the Orchestrator and agents driven by `/events/stream` (which agent works, web searches, memory lookups, reminders).
+1. **Visual desktop interface – step 1 DONE (pending live test).** Next: **step 2** encrypted nightly backup of `data/` to another internal disk + PIN lock for sensitive panels; **step 3** weather (SMHI open data) + sports ticker (ESPN public scoreboard endpoints, swappable provider, leagues editable via Oden). Original scope: web UI served by Jarvis Core on 127.0.0.1, shown in its own app window; desktop icon; tray icon (Jarvis keeps running in the background when the window closes); global hotkey (e.g. Ctrl+Alt+J) to bring it up; chat window for typing (quiet hours when the family sleeps); sound on/off toggle; live "second brain" map of the Orchestrator and agents driven by `/events/stream` (which agent works, web searches, memory lookups, reminders).
 2. **Voice:** local speech-to-text and text-to-speech, wake word "Hej Jarvis" (both hotkey and wake word wake Jarvis); respects the sound toggle.
 3. **CalendarService (Google Calendar):** start with the current Google account, move to a new private account later. One calendar per category (each child, family, Robin's work, wife's work, VerkstadsFlow), shared with the wife (iPhone via Google account in iOS Calendar) and shown on an Android tablet as family display. Jarvis picks the calendar from the category ("lägg in BVC-tid för ..."), always with confirmation.
 4. Later: Cal.com booking for VerkstadsFlow (on top of Google Calendar); own mobile app (Jarvis Core API over Tailscale, PWA or .NET MAUI) as another chat/notification channel; social media analytics.

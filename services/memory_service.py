@@ -305,6 +305,23 @@ class MemoryService:
 
         return [self._row_to_message(row) for row in rows]
 
+    def get_recent_messages(
+        self, limit: int = 50, before_id: Optional[int] = None
+    ) -> list[Message]:
+        """
+        Return the most recent messages across ALL sessions, oldest first.
+        With `before_id`, return the page just before that message (for
+        scrolling back through history in the desktop interface).
+        """
+        conn = self._get_connection()
+        if before_id is None:
+            rows = conn.execute("SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM messages WHERE id < ? ORDER BY id DESC LIMIT ?", (before_id, limit)
+            ).fetchall()
+        return [self._row_to_message(row) for row in reversed(rows)]
+
     def get_messages_after(
         self, after_id: int = 0, limit: Optional[int] = None
     ) -> list[Message]:

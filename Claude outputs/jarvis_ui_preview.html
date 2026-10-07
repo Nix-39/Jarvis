@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="sv" data-theme="orange">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis – förhandsvisning</title>
+<style>
+:root{
+  --bg:#050505; --panel:#0b0b0c; --line:rgba(255,255,255,.06);
+  --accent:#ff8c1a; --accent-2:#ffb866; --hot:#ffd9a8;
+  --dim:rgba(255,140,26,.16); --glow:rgba(255,140,26,.70);
+  --text:#fff3e3; --muted:#a8927a;
+}
+:root[data-theme="gold"]{
+  --accent:#f0b43c; --accent-2:#ffd77a; --hot:#fff1c4;
+  --dim:rgba(240,180,60,.16); --glow:rgba(240,180,60,.68);
+  --text:#fff8e6; --muted:#ab9c78;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:radial-gradient(ellipse at 50% 45%, var(--dim) 0%, transparent 55%), var(--bg);
+  color:var(--text); font-family:"Segoe UI",system-ui,sans-serif; overflow:hidden;
+  transition:background .6s;
+}
+#stars{position:fixed;inset:0;z-index:0;pointer-events:none}
+.grid{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:44px 44px; mask-image:radial-gradient(ellipse at center,#000 30%,transparent 75%)}
+.scan{position:fixed;left:0;right:0;height:120px;z-index:0;pointer-events:none;
+  background:linear-gradient(transparent,var(--dim),transparent);opacity:.35;animation:scan 9s linear infinite}
+@keyframes scan{from{top:-120px}to{top:100%}}
+
+/* ---------- header ---------- */
+header{position:relative;z-index:5;display:flex;align-items:center;justify-content:space-between;padding:12px 22px}
+.brand{display:flex;align-items:center;gap:10px;letter-spacing:.35em;font-weight:700;font-size:14px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--glow);animation:blink 2s infinite}
+@keyframes blink{50%{opacity:.35}}
+.controls{display:flex;gap:8px;align-items:center}
+.btn{background:transparent;border:1px solid var(--dim);color:var(--text);padding:6px 12px;border-radius:4px;cursor:pointer;
+  font:600 12px "Segoe UI",sans-serif;letter-spacing:.08em;transition:.2s}
+.btn:hover,.btn.on{border-color:var(--accent);box-shadow:0 0 12px var(--glow);color:var(--hot)}
+.hint{color:var(--muted);font-size:11px;letter-spacing:.1em;margin-right:6px}
+
+/* ---------- stage ---------- */
+#stage{position:relative;z-index:2;height:calc(100vh - 56px - 132px);min-height:440px;display:flex;flex-direction:column;justify-content:space-between;padding:8px 24px}
+#wires{position:absolute;inset:0;width:100%;height:100%;z-index:0;overflow:visible}
+.wire{fill:none;stroke:var(--dim);stroke-width:1.5;stroke-dasharray:4 7;animation:flow 2.4s linear infinite}
+.wire.active{stroke:var(--accent);stroke-width:2.2;filter:drop-shadow(0 0 4px var(--glow))}
+@keyframes flow{to{stroke-dashoffset:-22}}
+
+.row{position:relative;z-index:1;display:flex;justify-content:space-evenly;align-items:flex-start}
+.node{display:flex;flex-direction:column;align-items:center;gap:8px;width:110px;
+  filter:drop-shadow(0 0 5px var(--dim));animation:breathe 4s ease-in-out infinite;transition:filter .3s, transform .3s}
+.node:nth-child(2n){animation-delay:-1.3s}.node:nth-child(3n){animation-delay:-2.6s}
+@keyframes breathe{50%{filter:drop-shadow(0 0 11px var(--dim))}}
+.oct{position:relative;width:84px;height:84px;clip-path:polygon(29% 0,71% 0,100% 29%,100% 71%,71% 100%,29% 100%,0 71%,0 29%);
+  background:linear-gradient(160deg,var(--accent-2),var(--accent) 45%,#3a1d00);opacity:.55;transition:opacity .3s}
+:root[data-theme="gold"] .oct{background:linear-gradient(160deg,var(--accent-2),var(--accent) 45%,#3a2a00)}
+.oct-in{position:absolute;inset:2px;clip-path:inherit;background:radial-gradient(circle at 50% 35%,#1a1410,#070605 70%);
+  display:grid;place-items:center}
+.oct svg{width:38px;height:38px;stroke:var(--accent);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transition:.3s}
+.label{font-size:11.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);transition:.3s;text-align:center}
+.node.small .oct{width:66px;height:66px}.node.small .oct svg{width:28px;height:28px}
+.node.active{animation:none;filter:drop-shadow(0 0 18px var(--glow)) drop-shadow(0 0 4px var(--accent-2));transform:translateY(-3px) scale(1.06)}
+.node.active .oct{opacity:1}
+.node.active svg{stroke:var(--hot)}
+.node.active .label{color:var(--hot);text-shadow:0 0 8px var(--glow)}
+.ripple{position:absolute;inset:0;clip-path:inherit;border:0;background:var(--accent);opacity:0;pointer-events:none}
+.node.active .ripple{animation:ripple 1.1s ease-out infinite}
+@keyframes ripple{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.25)}}
+.node .wrap{position:relative}
+
+/* ---------- core ---------- */
+.center{position:relative;z-index:1;display:flex;justify-content:center;align-items:center;flex:1}
+.core{position:relative;width:250px;height:250px;display:grid;place-items:center}
+.ring{position:absolute;inset:0;border-radius:50%}
+.ring svg{width:100%;height:100%;overflow:visible}
+.ring circle{fill:none;stroke:var(--accent);filter:drop-shadow(0 0 3px var(--glow))}
+.r1{animation:spin 24s linear infinite}.r2{animation:spin 14s linear infinite reverse}.r3{animation:spin 8s linear infinite}
+.core.busy .r1{animation-duration:6s}.core.busy .r2{animation-duration:3.5s}.core.busy .r3{animation-duration:2s}
+@keyframes spin{to{transform:rotate(360deg)}}
+.orb{width:84px;height:84px;border-radius:50%;
+  background:radial-gradient(circle at 50% 45%,#fff 0%,var(--hot) 14%,var(--accent) 38%,rgba(0,0,0,0) 70%);
+  box-shadow:0 0 40px var(--glow),0 0 90px var(--dim);animation:pulse 2.6s ease-in-out infinite}
+.core.busy .orb{animation-duration:.9s}
+@keyframes pulse{50%{transform:scale(1.13);box-shadow:0 0 60px var(--glow),0 0 130px var(--dim)}}
+.title{position:absolute;bottom:-50px;text-align:center;width:340px}
+.title h1{font:800 34px "Segoe UI",sans-serif;letter-spacing:.32em;padding-left:.32em;
+  background:linear-gradient(180deg,#fff 10%,var(--hot) 40%,var(--accent) 75%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 10px var(--glow))}
+.title p{margin-top:4px;font-size:11px;letter-spacing:.3em;color:var(--muted);text-transform:uppercase}
+.title p b{color:var(--accent-2);font-weight:600}
+
+/* speech bubble */
+#bubble{position:absolute;left:calc(50% + 150px);top:calc(50% - 120px);max-width:330px;z-index:3;
+  background:rgba(12,10,8,.92);border:1px solid var(--accent);box-shadow:0 0 22px var(--dim);border-radius:6px;
+  padding:12px 14px;font-size:13.5px;line-height:1.45;opacity:0;transform:translateY(8px);transition:.4s;pointer-events:none}
+#bubble.show{opacity:1;transform:none}
+#bubble small{display:block;color:var(--accent-2);font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;margin-bottom:5px}
+
+/* ---------- ticker ---------- */
+#ticker{position:fixed;left:24px;bottom:16px;z-index:4;width:min(560px,60vw);height:110px;overflow:hidden;
+  font:12.5px Consolas,"Cascadia Mono",monospace;mask-image:linear-gradient(transparent,#000 40%)}
+#ticker div{color:var(--muted);padding:2px 0;animation:in .4s ease-out}
+#ticker div b{color:var(--accent)}
+#ticker div:last-child{color:var(--text);text-shadow:0 0 6px var(--dim)}
+@keyframes in{from{opacity:0;transform:translateX(-8px)}}
+
+/* ask bar */
+#ask{position:fixed;right:24px;bottom:22px;z-index:4;display:flex;gap:8px;width:min(420px,36vw)}
+#ask input,#chat input{flex:1;background:rgba(10,9,8,.85);border:1px solid var(--dim);color:var(--text);padding:11px 14px;border-radius:4px;
+  font:14px "Segoe UI",sans-serif;outline:none;transition:.2s}
+#ask input:focus,#chat input:focus{border-color:var(--accent);box-shadow:0 0 14px var(--dim)}
+
+/* chat panel */
+#chat{position:fixed;top:56px;right:0;bottom:0;width:min(400px,92vw);z-index:6;background:rgba(8,7,6,.96);
+  border-left:1px solid var(--accent);box-shadow:-10px 0 40px rgba(0,0,0,.7),0 0 30px var(--dim);
+  transform:translateX(105%);transition:transform .45s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column}
+#chat.open{transform:none}
+#chat h2{font-size:12px;letter-spacing:.3em;padding:16px 18px;border-bottom:1px solid var(--dim);color:var(--accent-2)}
+#msgs{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:88%;padding:9px 12px;border-radius:6px;font-size:13.5px;line-height:1.45;animation:in .3s}
+.msg.user{align-self:flex-end;background:var(--dim);border:1px solid rgba(255,255,255,.06)}
+.msg.jarvis{align-self:flex-start;background:#0f0d0b;border:1px solid var(--accent);box-shadow:0 0 10px var(--dim)}
+.msg small{display:block;font-size:10px;letter-spacing:.12em;color:var(--muted);margin-bottom:3px;text-transform:uppercase}
+#chat form{display:flex;gap:8px;padding:12px;border-top:1px solid var(--dim)}
+
+@media (max-width:900px){.node{width:78px}.oct{width:60px;height:60px}.oct svg{width:28px;height:28px}.label{font-size:9.5px}
+  #bubble{left:12px;right:12px;top:auto;bottom:150px;max-width:none}.core{width:190px;height:190px}}
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas><div class="grid"></div><div class="scan"></div>
+
+<header>
+  <div class="brand"><span class="dot"></span>JARVIS</div>
+  <div class="controls">
+    <span class="hint">FÖRHANDSVISNING · FÄRG:</span>
+    <button class="btn on" data-theme-btn="orange">Svart/orange</button>
+    <button class="btn" data-theme-btn="gold">Svart/guld</button>
+    <button class="btn on" id="sound" title="Ljud på/av">🔊 Ljud på</button>
+    <button class="btn" id="chatBtn" title="Ctrl+Alt+J">Chatt · Ctrl+Alt+J</button>
+  </div>
+</header>
+
+<main id="stage">
+  <svg id="wires"></svg>
+  <section class="row" id="agents"></section>
+  <section class="center">
+    <div class="core" id="core">
+      <div class="ring r1"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="49" stroke-width=".5" stroke-dasharray="1 2.2"/></svg></div>
+      <div class="ring r2" style="inset:22px"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" stroke-width="1.2" stroke-dasharray="22 10 4 10"/></svg></div>
+      <div class="ring r3" style="inset:48px"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="47" stroke-width="2" stroke-dasharray="40 108"/></svg></div>
+      <div class="orb"></div>
+      <div class="title"><h1>JARVIS</h1><p id="status">Online · <b>qwen3:8b</b> · redo</p></div>
+    </div>
+    <div id="bubble"></div>
+  </section>
+  <section class="row" id="services"></section>
+</main>
+
+<div id="ticker"></div>
+<form id="ask"><input placeholder="Fråga Jarvis…" autocomplete="off"></form>
+
+<aside id="chat">
+  <h2>CHATT MED JARVIS</h2>
+  <div id="msgs"></div>
+  <form><input placeholder="Skriv här…" autocomplete="off"></form>
+</aside>
+
+<script>
+const $=id=>document.getElementById(id);
+const agents=$('agents'),services=$('services'),stage=$('stage'),core=$('core'),wires=$('wires'),ticker=$('ticker'),msgs=$('msgs'),sound=$('sound'),chatBtn=$('chatBtn'),chat=$('chat'),statusEl=$('status');
+const ICONS = {
+  business:'<path d="M4 20V10M10 20V5M16 20v-7M22 20H2"/><path d="M14 4h5v5"/><path d="M19 4l-6 6"/>',
+  career:'<rect x="3" y="7" width="18" height="13" rx="1.5"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/>',
+  webdev:'<path d="M8 8l-5 4 5 4M16 8l5 4-5 4M14 5l-4 14"/>',
+  education:'<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2.5 9 2.5 12 0v-5M22 9v6"/>',
+  general:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
+  social:'<path d="M3 10v4l11 5V5L3 10z"/><path d="M14 9a4 4 0 0 1 0 6M7 15l1.5 5h3"/>',
+  content:'<rect x="3" y="6" width="13" height="12" rx="1.5"/><path d="M16 10l5-3v10l-5-3"/>',
+  reminder:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',
+  memory:'<path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 1V5a3 3 0 0 0-3-1zM15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 1"/>',
+  web:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>',
+  scheduler:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M5 3L2 6M19 3l3 3"/>',
+  telegram:'<path d="M21 4L3 11l6 2 2 6 3-4 5 4z"/><path d="M9 13l12-9"/>',
+};
+const AGENTS = [
+  ['business_agent','business','Business'],['career_agent','career','Karriär'],['webdeveloper_agent','webdev','Webbutv.'],
+  ['education_agent','education','Utbildning'],['general_agent','general','Allmänt'],['socialmediamanager_agent','social','Sociala medier'],
+  ['contentcreator_agent','content','Innehåll'],['reminder_agent','reminder','Påminnelser'],
+];
+const SERVICES = [['memory','memory','Minne'],['web','web','Webbsök'],['scheduler','scheduler','Schemaläggare'],['telegram','telegram','Telegram']];
+
+function nodeHTML([id,icon,label],small){
+  return `<div class="node${small?' small':''}" data-id="${id}"><div class="wrap"><div class="oct"><div class="oct-in"><svg viewBox="0 0 24 24">${ICONS[icon]}</svg></div><div class="ripple"></div></div></div><div class="label">${label}</div></div>`;
+}
+agents.innerHTML = AGENTS.map(a=>nodeHTML(a)).join('');
+services.innerHTML = SERVICES.map(s=>nodeHTML(s,true)).join('');
+
+/* ---------- wires ---------- */
+const NS='http://www.w3.org/2000/svg', paths={};
+function layout(){
+  wires.innerHTML=''; const st=stage.getBoundingClientRect(), c=core.getBoundingClientRect();
+  const cx=c.left+c.width/2-st.left, cy=c.top+c.height/2-st.top;
+  document.querySelectorAll('.node').forEach(n=>{
+    const o=n.querySelector('.oct').getBoundingClientRect(), up=n.parentElement.id==='agents';
+    const x=o.left+o.width/2-st.left, y=(up?o.bottom:o.top)-st.top;
+    const sy=up?cy-c.height*0.36:cy+c.height*0.36;
+    const p=document.createElementNS(NS,'path');
+    p.setAttribute('d',`M${cx},${sy} C${cx},${(sy+y)/2} ${x},${(sy+y)/2} ${x},${y}`);
+    p.setAttribute('class','wire'); wires.appendChild(p); paths[n.dataset.id]=p;
+  });
+}
+addEventListener('resize',layout); setTimeout(layout,50);
+
+function particle(id,toNode=true,count=3){
+  const p=paths[id]; if(!p) return; const L=p.getTotalLength();
+  p.classList.add('active'); setTimeout(()=>p.classList.remove('active'),1600);
+  for(let k=0;k<count;k++){
+    const dot=document.createElementNS(NS,'circle'); dot.setAttribute('r',k?2.4:3.6);
+    dot.setAttribute('fill','var(--hot)'); dot.style.filter='drop-shadow(0 0 6px var(--accent))'; wires.appendChild(dot);
+    const start=performance.now()+k*140, dur=900;
+    (function step(t){ const q=Math.min(Math.max((t-start)/dur,0),1), e=q<.5?2*q*q:1-Math.pow(-2*q+2,2)/2;
+      const pt=p.getPointAtLength((toNode?e:1-e)*L); dot.setAttribute('cx',pt.x); dot.setAttribute('cy',pt.y);
+      if(q<1) requestAnimationFrame(step); else dot.remove(); })(performance.now());
+  }
+}
+const node=id=>document.querySelector(`.node[data-id="${id}"]`);
+function light(id,ms=1800){const n=node(id); if(!n)return; n.classList.add('active'); clearTimeout(n._t); if(ms) n._t=setTimeout(()=>n.classList.remove('active'),ms);}
+function unlight(id){const n=node(id); n&&n.classList.remove('active');}
+
+/* ---------- ticker, bubble, chat ---------- */
+function log(msg){const d=document.createElement('div'); const t=new Date().toLocaleTimeString('sv-SE');
+  d.innerHTML=`<b>${t}</b> › ${msg}`; ticker.appendChild(d); while(ticker.children.length>8) ticker.firstChild.remove(); blip(660,.03);}
+function bubble(agent,text){bubbleEl.innerHTML=`<small>${agent}</small>${text}`; bubbleEl.classList.add('show');
+  clearTimeout(bubbleEl._t); bubbleEl._t=setTimeout(()=>bubbleEl.classList.remove('show'),7000);}
+const bubbleEl=document.getElementById('bubble');
+function chatMsg(who,text,meta){const m=document.createElement('div'); m.className='msg '+who;
+  m.innerHTML=(meta?`<small>${meta}</small>`:'')+text; msgs.appendChild(m); msgs.scrollTop=msgs.scrollHeight;}
+function busy(on,agent){core.classList.toggle('busy',on);
+  statusEl.innerHTML=on?`Arbetar · <b>${agent}</b>`:'Online · <b>qwen3:8b</b> · redo';}
+
+/* ---------- tiny sound (demo) ---------- */
+let soundOn=true, ac=null;
+function blip(f=520,v=.05){ if(!soundOn) return; try{ ac=ac||new AudioContext(); const o=ac.createOscillator(),g=ac.createGain();
+  o.frequency.value=f; o.type='sine'; g.gain.value=v; g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+.18);
+  o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime+.2);}catch(e){} }
+sound.onclick=()=>{soundOn=!soundOn; sound.textContent=soundOn?'🔊 Ljud på':'🔇 Ljud av'; sound.classList.toggle('on',soundOn);};
+
+/* ---------- scripted demo ---------- */
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function runQuery({via,text,category,agent,memory,web,reply,after}){
+  if(via==='telegram'){light('telegram',1500); particle('telegram',false);}
+  log(`Ny fråga via ${via}: ${text}`); chatMsg('user',text,via); blip(440,.05);
+  await wait(900); busy(true,agent); log(`Kategori '${category}' → ${agent}`); particle(agent); light(agent,0);
+  await wait(1100);
+  if(memory){light('memory',1500); particle('memory'); await wait(500); particle('memory',false,2); log(memory); await wait(900);}
+  if(web){light('web',2600); particle('web'); log(`Söker på webben: ${web}`); await wait(1500); particle('web',false,4);
+    log('Hittade 5 källor på webben'); await wait(900);}
+  await wait(900); particle(agent,false,4); await wait(700); unlight(agent); busy(false);
+  log(`${agent} svarade på ${(3+Math.random()*4).toFixed(1)}s`); bubble(agent,reply); chatMsg('jarvis',reply,agent); blip(880,.05);
+  if(via==='telegram'){await wait(400); particle('telegram'); light('telegram',1200);}
+  if(after) await after();
+}
+const SCRIPT=[
+  ()=>runQuery({via:'terminal',text:'Hur kan VerkstadsFlow få fler kunder i höst?',category:'business',agent:'business_agent',
+    memory:'Minnet: 2 samtal, 1 dokument',web:'bilverkstad marknadsföring lokalt 2026',
+    reply:'Tre snabba vinster: Google-recensioner efter varje jobb, en säsongskampanj för vinterdäck och en enkel bokningsknapp på startsidan. Ska jag skissa ett mejl till dina befintliga kunder?'}),
+  async()=>{await wait(1500); light('memory',2000); log('Långtidsminnet uppdaterat (4 nya meddelanden)'); blip(300,.03);},
+  ()=>runQuery({via:'telegram',text:'påminn mig att ringa verkstaden imorgon kl 10',category:'reminders',agent:'reminder_agent',
+    reply:'Ska jag lägga in: "Ring verkstaden" imorgon kl 10:00? (ja/nej)'}),
+  ()=>runQuery({via:'telegram',text:'ja',category:'svar på väntande fråga',agent:'reminder_agent',
+    reply:'Klart! Jag påminner dig imorgon kl 10:00.',
+    after:async()=>{await wait(500); particle('scheduler'); light('scheduler',1800); log('Ny påminnelse: Ring verkstaden');}}),
+  async()=>{await wait(1800); light('scheduler',2200); log('Påminnelse skickad: Hämta på förskolan'); await wait(600);
+    particle('scheduler',false); await wait(700); particle('telegram'); light('telegram',1500); blip(990,.05);},
+  ()=>runQuery({via:'terminal',text:'Ge mig tre videoidéer om integritet på nätet',category:'content_creation',agent:'contentcreator_agent',
+    memory:'Minnet: 1 samtal, 0 dokument',
+    reply:'1) "Så spårar appar dig – och hur du stoppar det" 2) "Cookies förklarat på 60 sekunder" 3) "Testar: hur mycket vet Google om mig?"'}),
+];
+(async function loop(){ await wait(1200); log('Jarvis är online'); for(;;){ for(const s of SCRIPT){ await s(); await wait(2600);} } })();
+
+/* ---------- interactions ---------- */
+function toggleChat(force){chat.classList.toggle('open',force); chatBtn.classList.toggle('on',chat.classList.contains('open'));
+  if(chat.classList.contains('open')) chat.querySelector('input').focus();}
+chatBtn.onclick=()=>toggleChat();
+addEventListener('keydown',e=>{ if(e.ctrlKey&&e.altKey&&e.key.toLowerCase()==='j'){e.preventDefault(); toggleChat();} if(e.key==='Escape') toggleChat(false); });
+document.querySelectorAll('form').forEach(f=>f.onsubmit=e=>{e.preventDefault(); const i=f.querySelector('input'), v=i.value.trim(); if(!v)return; i.value='';
+  if(f.id==='ask') toggleChat(true);
+  runQuery({via:'chatt',text:v,category:'general',agent:'general_agent',memory:'Minnet: 0 samtal, 0 dokument',
+    reply:'(Förhandsvisning) Här kommer Jarvis riktiga svar att visas när gränssnittet kopplas till Jarvis Core.'});});
+document.querySelectorAll('[data-theme-btn]').forEach(b=>b.onclick=()=>{document.documentElement.dataset.theme=b.dataset.themeBtn;
+  document.querySelectorAll('[data-theme-btn]').forEach(x=>x.classList.toggle('on',x===b));});
+
+/* ---------- drifting sparks ---------- */
+const cv=document.getElementById('stars'), cx2=cv.getContext('2d'); let sparks=[];
+function resize(){cv.width=innerWidth;cv.height=innerHeight; sparks=Array.from({length:70},()=>({x:Math.random()*cv.width,y:Math.random()*cv.height,
+  r:Math.random()*1.6+.3,v:Math.random()*.25+.05,a:Math.random()}));}
+addEventListener('resize',resize); resize();
+(function draw(){ const col=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  cx2.clearRect(0,0,cv.width,cv.height);
+  for(const s of sparks){ s.y-=s.v; s.a+=.01; if(s.y<-5){s.y=cv.height+5;s.x=Math.random()*cv.width;}
+    cx2.globalAlpha=.25+.35*Math.abs(Math.sin(s.a)); cx2.fillStyle=col; cx2.beginPath(); cx2.arc(s.x,s.y,s.r,0,7); cx2.fill(); }
+  requestAnimationFrame(draw); })();
+</script>
+</body>
+</html>

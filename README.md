@@ -89,6 +89,18 @@ Key decisions:
 - **Telegram bot** (`services/telegram_service.py`): long polling over outgoing HTTPS, so no port is opened on the computer or router. Only the owner's chat id is answered; others are ignored and logged. Messages sent while the computer was off are not executed (an old "remind me in 10 minutes" would be wrong); Jarvis asks you to resend them. The bot token is never logged. `/status` shows how Jarvis is doing.
 - **Event feed** (`core/events.py`): components publish small events ("Kategori 'business' → business_agent", "Söker på webben: …", "Påminnelse skickad"). The terminal shows them live while you wait, and they are streamed via `/events/stream` (Server-Sent Events) for the upcoming visual desktop interface that shows the second brain at work.
 
+## Desktop interface – Yggdrasil
+
+The visual face of the system: **Yggdrasil**, the world tree, with **Oden** as the orchestrator that hands out work.
+
+- **Live brain map:** the seven agents sit above the tree. When Oden routes a question, three glowing bolts fly from the crown to the agent and back with the answer; memory lookups and reminders travel down the roots to the three wells: **Mimer** (memory), **Urd** (calendar) and **Hvergelmer** (security).
+- **Log and chat** on the right: everything Oden and the agents say and do, including questions from Telegram, with search (Ctrl+F) and history.
+- **Family column:** one node per family member with their next seven days; **Urd** opens a week/month calendar with person filters.
+- **Drop a document** anywhere on the window and Oden asks which folder it belongs in, saves it and learns it.
+- **Always available:** own window with icon, system tray, starts hidden at login, global hotkey **Ctrl+Alt+J**. Background image, sound levels and names are personal settings in `data/ui/`.
+
+Security: the interface is a web page served by the core on `127.0.0.1` and shown in its own window (WebView2). The static files contain no data; every personal endpoint needs the API token, which only the desktop app hands to the page through its JavaScript bridge, so other programs and web pages on the computer cannot use it. Strict Content-Security-Policy, uploads validated by type, size and path (no path traversal), the hotkey uses Windows' `RegisterHotKey` (no keyboard hook), and external links open only for an allowlist of sites.
+
 ## Reminders & scheduler
 
 - **ReminderAgent** turns natural language into a structured proposal and always asks for confirmation. "ja" saves, "nej" discards, anything else ("kl 11 istället") corrects. The model never writes to the database; only validated Python code does.
@@ -108,6 +120,7 @@ Key decisions:
 | Documents | `pypdf`, `python-docx` |
 | Web search | SearXNG (self-hosted, Docker), `httpx`, `lxml` |
 | Local API | FastAPI + uvicorn (127.0.0.1 only, bearer token, Server-Sent Events) |
+| Desktop interface | HTML/CSS/vanilla JS modules + Canvas/SVG, pywebview (WebView2), pystray |
 | Phone access | Telegram Bot API (long polling, no open ports) |
 | Config/secrets | `.env` (never committed) + `core/config.py` |
 | Logging | Centralized rotating file logs, plan IDs for tracing |
@@ -121,13 +134,16 @@ jarvis/
 ├── scripts/
 │   ├── install_core.ps1    # Autostart Jarvis Core at login (no window)
 │   ├── restart_core.ps1    # Restart (or -Stop) Jarvis Core, e.g. after editing .env
+│   ├── install_desktop.ps1 # Desktop shortcut + tray app at login
 │   └── check_autostart.ps1 # Verify that everything starts and runs
 ├── docker/searxng/         # Private search engine (docker-compose + settings)
+├── ui/                     # Desktop interface (HTML/CSS/JS modules, icon) served by the core
 ├── .env.example            # Configuration template (copy to .env)
 ├── requirements.txt
 │
 ├── agents/                 # Domain-specific logic, one file per agent
 ├── clients/
+│   ├── desktop.py          # Desktop app: window, tray icon, global hotkey
 │   └── terminal.py         # Thin terminal client for Jarvis Core
 ├── core/
 │   ├── api.py              # Local API (127.0.0.1, token, event stream)
@@ -148,6 +164,8 @@ jarvis/
 │   ├── memory_service.py   # Short-term memory (SQLite)
 │   ├── notification_service.py  # Windows toast + Telegram channels
 │   ├── reminder_service.py # Reminders (SQLite, recurrence)
+│   ├── system_monitor.py   # GPU load / VRAM for the interface
+│   ├── ui_settings.py      # Interface settings, people, images (data/ui/)
 │   ├── telegram_service.py # Two-way chat with the phone
 │   ├── vector_service.py   # Long-term memory + documents (ChromaDB)
 │   └── web_search_service.py  # Live web information via SearXNG
@@ -198,6 +216,10 @@ jarvis/
    .\jarvis
    ```
    No venv activation is needed. Type your message after `Du >`, `/status` shows how Jarvis is doing, and `exit` quits. Add `--quiet` to hide the live "what Jarvis is doing" lines. Logs are in `logs/jarvis_core.log`.
+8. Install the desktop interface (desktop shortcut, tray icon at login, Ctrl+Alt+J):
+   ```powershell
+   .\scripts\install_desktop.ps1
+   ```
 
 ## Using long-term memory
 
@@ -240,6 +262,7 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | `TELEGRAM_STARTUP_MESSAGE` | `true` | Send "Jarvis är online" to Telegram when the core starts |
 | `JARVIS_API_PORT` | `8765` | Local API port (always bound to 127.0.0.1) |
 | `OLLAMA_STARTUP_WAIT_SECONDS` | `300` | How long the core waits for Ollama at login |
+| `DESKTOP_HOTKEY` | `ctrl+alt+j` | Global hotkey that brings up the Yggdrasil window |
 | `LOG_LEVEL` | `INFO` | Log verbosity |
 
 ## Status
@@ -257,7 +280,10 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | ReminderAgent + scheduler + notifications | ✅ Verified |
 | Jarvis Core (always running) + local API + event feed | ✅ Implemented |
 | Telegram two-way chat (mobile access) | ✅ Implemented |
-| Visual desktop interface (brain map, chat window, hotkey, tray icon) | 📋 Planned (next) |
+| Desktop interface "Yggdrasil" (brain map, log/chat, family calendar, tray, hotkey) | ✅ Implemented |
+| Encrypted nightly backup + PIN lock for sensitive panels | 📋 Planned (next) |
+| Weather (SMHI) + sports results ticker (ESPN) | 📋 Planned |
+| Hvergelmer security checks, Gmail, Slack, morning briefing | 📋 Planned |
 | Google Calendar (family calendars, categories) | 📋 Planned |
 | Own Jarvis mobile app (API + Tailscale) | 📋 Planned |
 | Voice (local speech-to-text, text-to-speech, "Hej Jarvis" wake word) | 📋 Planned |

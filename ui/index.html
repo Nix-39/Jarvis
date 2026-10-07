@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yggdrasil</title>
+<link rel="icon" href="assets/yggdrasil.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="no-sports no-weather">
+<canvas id="sparks"></canvas><div class="grid"></div><div id="drop">SLÄPP FÖR ATT LÄRA YGGDRASIL</div>
+
+<div id="lock">
+  <div class="lockbox">
+    <h1 id="lockTitle">YGGDRASIL</h1>
+    <p id="lockText">Ansluter till kärnan…</p>
+  </div>
+</div>
+
+<header>
+  <div class="brand"><span class="dot"></span><span id="brandName">YGGDRASIL</span></div>
+  <div class="lamps" id="lamps"></div>
+  <div class="spacer"></div>
+  <span class="clock" id="clock"></span>
+  <button class="btn gold wx" id="wxBtn" hidden><span id="wxIcon"></span><b id="wxTemp"></b><em id="wxWarn" hidden></em></button>
+  <div class="hwrap"><button class="btn gold" id="bgBtn">Bakgrund</button>
+    <div class="pop" id="bgPop"><h4>BAKGRUNDSBILD</h4>
+      <div class="srow"><span>☀</span><span>Styrka</span><input type="range" id="bgStrength" min="0" max="100"><span class="v" id="vS"></span></div>
+      <div class="srow"><span>⤢</span><span>Storlek</span><input type="range" id="bgSize" min="60" max="160"><span class="v" id="vZ"></span></div>
+      <div class="srow"><span>↔</span><span>Sidled</span><input type="range" id="bgX" min="-40" max="40"><span class="v" id="vX"></span></div>
+      <div class="srow"><span>↕</span><span>Höjdled</span><input type="range" id="bgY" min="-40" max="40"><span class="v" id="vY"></span></div>
+      <div class="srow"><span>◐</span><span>Dämpa mitten</span><input type="range" id="bgDim" min="0" max="90"><span class="v" id="vD"></span></div>
+      <div class="srow"><span>▣</span><span>Kanttoning bredd</span><input type="range" id="bgEdgeW" min="2" max="45"><span class="v" id="vEW"></span></div>
+      <div class="srow"><span>▪</span><span>Kanttoning styrka</span><input type="range" id="bgEdgeS" min="0" max="100"><span class="v" id="vES"></span></div>
+      <div class="secbtns"><button id="bgPick">Välj bild…</button><button id="bgOff">Ingen bild</button></div>
+      <input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp" hidden>
+    </div>
+  </div>
+  <div class="hwrap"><button class="btn gold" id="soundBtn">Ljud</button>
+    <div class="pop" id="soundPop"><h4>LJUDNIVÅER</h4>
+      <label class="master"><span>Stäng av allt ljud</span><input type="checkbox" id="masterMute"><i></i></label>
+      <div id="soundRows"></div>
+    </div>
+  </div>
+</header>
+
+<div id="sports" hidden><div id="league"><span id="leagueName"></span> ▾<div id="leagueMenu"></div></div><div id="track"><div id="tape"></div></div><div id="pager"></div></div>
+<div id="statusChip"><i></i><span id="status">Ansluter…</span></div>
+
+<div id="stage">
+  <svg id="fx"><defs><filter id="blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter></defs><g id="guides"></g><g id="bolts"></g></svg>
+  <aside id="left">
+    <div class="sys">
+      <div class="row"><span>GPU</span><b id="gpuPct">–</b></div><div class="bar"><i id="gpuBar"></i></div>
+      <div class="row"><span>VRAM</span><span><b id="vram">–</b> / <span id="vramTotal">–</span> GB</span></div>
+      <div class="row"><span>Modell</span><b id="modelName">–</b></div>
+      <div class="spark" id="spark"></div>
+    </div>
+    <div id="people"></div>
+  </aside>
+  <section id="agents"></section>
+  <div id="bgwrap"><div id="bgimg"></div><div id="bgdim"></div></div>
+  <canvas id="myth"></canvas>
+  <canvas id="tree"></canvas>
+  <div class="title" id="title"><h1 id="titleName">YGGDRASIL</h1></div>
+  <div id="wells"></div>
+  <aside id="chat">
+    <div class="chathead"><span class="head">LOGG</span><input id="search" placeholder="Sök  Ctrl+F" autocomplete="off"><label class="toggle"><input type="checkbox" id="steps" checked> steg</label></div>
+    <div id="log"></div>
+    <form id="ask"><input id="askInput" placeholder="Fråga Oden…  (Ctrl+Alt+J)" autocomplete="off" maxlength="4000"></form>
+  </aside>
+  <div id="panel"></div>
+  <div id="cal"></div>
+  <div id="pending"></div>
+  <div id="pop"></div>
+  <div id="toast"></div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
