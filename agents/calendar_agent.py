@@ -33,6 +33,7 @@ from services.calendar_service import (
 )
 from services.memory_service import DEFAULT_CONTEXT_LIMIT, DEFAULT_SESSION_ID, MemoryService, format_conversation_history
 from services.ollama_service import OllamaService
+from services.lessons_service import lesson_book
 from services.prompt_loader import PromptLoader
 from services.reminder_service import Reminder, ReminderService
 
@@ -362,7 +363,7 @@ class CalendarAgent:
         prompt = f"""
 System Instructions:
 {self.system_prompt}
-
+{lesson_book.block_for(self.AGENT_ID)}
 Current date and time: {current_datetime_text()} (ISO: {datetime.now().astimezone():%Y-%m-%d %H:%M}, week {iso_week(today)})
 
 Date lookup (use it - never compute weekdays or week numbers yourself):

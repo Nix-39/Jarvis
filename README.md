@@ -109,6 +109,22 @@ Security: the interface is a web page served by the core on `127.0.0.1` and show
 - **Notifications as channels** (`NotificationService`): Windows toast and Telegram today, a future Jarvis mobile app plugs in as another channel. Notification text is passed to PowerShell via environment variables and XML-escaped, never interpolated into a command.
 - **Categories** live in `data/reminder_categories.txt` (private). Reminders store a reserved `calendar_event_id` for the upcoming Google Calendar integration.
 
+## Teaching Oden – lessons
+
+You can teach Oden in plain Swedish instead of changing code:
+
+```
+Oden, lär dig: när jag säger match menar jag ett domaruppdrag   -> Oden shows the lesson and where it applies
+bara kalendern                                                  -> limit it to the calendar ("gäller alla" for everywhere)
+ja                                                              -> saved
+vad har du lärt dig?                                            -> numbered list
+glöm lärdom 2                                                   -> removed after "ja"
+```
+
+- Lessons are stored one per line in `data/lessons.md` (private) and can be edited by hand; `[kalender]`, `[oden]`, `[business]` ... limits a lesson to one agent (`oden` = how requests are routed), no scope means all agents.
+- They are added to the prompts of the agents they apply to, below the system instructions. Nothing changes in the code.
+- The commands are recognised by fixed patterns in Python (`LessonsAgent`, no language model), and everything is confirmed first, so web pages, documents or the model itself can never add lessons.
+
 ## Calendar – Urd
 
 - **CalendarService** (`services/calendar_service.py`) stores bookings per family member in SQLite (`calendar_events`): kind `event`, `work` or `match`, start/end in UTC, location and validated details. Each event has `source` and `external_id` reserved for Google Calendar sync.
@@ -180,6 +196,7 @@ jarvis/
 │   ├── prompt_loader.py
 │   ├── memory_service.py   # Short-term memory (SQLite)
 │   ├── calendar_service.py # Family calendar Urd (SQLite: bookings, shifts, matches)
+│   ├── lessons_service.py  # The user's lessons for Oden (data/lessons.md)
 │   ├── notification_service.py  # Windows toast + Telegram channels
 │   ├── reminder_service.py # Reminders (SQLite, recurrence)
 │   ├── system_monitor.py   # GPU load / VRAM for the interface
@@ -300,6 +317,7 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | Telegram two-way chat (mobile access) | ✅ Implemented |
 | Desktop interface "Yggdrasil" (brain map, log/chat, family column, tray, hotkey) | ✅ Verified |
 | Family calendar Urd (bookings, work shifts, referee matches, day/week/month views) | ✅ Implemented |
+| Lessons – teach Oden in plain Swedish (data/lessons.md) | ✅ Implemented |
 | Encrypted nightly backup + PIN lock for sensitive panels | 📋 Planned (next) |
 | Weather (SMHI) + sports results ticker (ESPN) | 📋 Planned |
 | Hvergelmer security checks, Gmail, Slack, morning briefing | 📋 Planned |

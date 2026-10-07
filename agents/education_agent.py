@@ -9,6 +9,7 @@ from services.memory_service import (
     format_conversation_history,
 )
 from services.ollama_service import OllamaService
+from services.lessons_service import lesson_book
 from services.prompt_loader import PromptLoader
 from services.vector_service import VectorService
 from services.web_search_service import WebSearchService
@@ -83,7 +84,7 @@ class EducationAgent:
         full_prompt = f"""
 System Instructions:
 {self.system_prompt}
-
+{lesson_book.block_for(self.AGENT_ID)}
 Dagens datum och tid: {current_datetime_text()}
 
 Aktuell information från webben:

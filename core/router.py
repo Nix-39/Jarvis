@@ -11,6 +11,7 @@ It contains no business logic, agent instantiation, or orchestrator mapping.
 from typing import Dict, Tuple
 from core.logger import get_logger
 from services.ollama_service import OllamaService
+from services.lessons_service import lesson_book
 from services.prompt_loader import PromptLoader
 
 logger = get_logger(__name__)
@@ -86,7 +87,7 @@ class Router:
 
             # Formatted prompt structure matching standard agent implementation
             full_prompt = (
-                f"System Instructions:\n{system_prompt}\n\n"
+                f"System Instructions:\n{system_prompt}\n{lesson_book.block_for('router')}\n"
                 f"User Request:\n\"{user_input.strip()}\"\n\n"
                 f"Classification:"
             )

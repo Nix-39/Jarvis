@@ -58,6 +58,7 @@ async function boot() {
   } catch (e) { $('lockText').textContent = `Kunde inte läsa inställningar: ${e.message}`; return; }
   state.names = Object.fromEntries(state.agents.map((a) => [a.id, a.name]));
   state.names.reminder_agent = state.names.calendar_agent = state.settings.planner_name || 'Planering';
+  state.names.lessons_agent = oden();
   applyNames();
   renderLamps(); renderAgents(); renderWells(); setupBackground(); setupSound(); setupSearch();
   calendar.setPeople(state.settings.people);
@@ -357,9 +358,11 @@ function onEvent(ev) {
     case 'query.queued': step(ev.message); break;
     case 'agent.selected': {
       const label = state.names[d.agent] || d.agent;
-      step(d.reason === 'pending_reply' ? `${oden()}: svar på väntande fråga → ${label}` : `${oden()}: '${d.category}' → ${label}`);
+      step(d.reason === 'pending_reply' ? `${oden()}: svar på väntande fråga → ${label}` : d.reason === 'lesson' ? `${oden()}: lärdom` : `${oden()}: '${d.category}' → ${label}`);
       busy(d.agent, `Arbetar · <b>${esc(label)}</b>`);
-      if (d.agent === 'reminder_agent' || d.agent === 'calendar_agent') fire('root', 'urd'); else { fire('crown', d.agent); lightAgent(d.agent, true); }
+      if (d.agent === 'reminder_agent' || d.agent === 'calendar_agent') fire('root', 'urd');
+      else if (d.agent === 'lessons_agent') fire('root', 'mimer');
+      else { fire('crown', d.agent); lightAgent(d.agent, true); }
       break; }
     case 'memory.lookup':
       step(ev.message); fire('root', 'mimer', 2); setTimeout(() => fire('mimer', 'root', 2), 650); break;
@@ -369,7 +372,7 @@ function onEvent(ev) {
       step(ev.message); agentNode(state.busyAgent)?.classList.remove('searching'); break;
     case 'query.completed': {
       const id = d.agent; step(d.success === false ? `${state.names[id] || id} misslyckades` : `${state.names[id] || id} svarade på ${d.seconds} s`);
-      if (id && id !== 'reminder_agent' && id !== 'calendar_agent') { fire(id, 'crown'); setTimeout(() => lightAgent(id, false), 500); }
+      if (id && !['reminder_agent', 'calendar_agent', 'lessons_agent'].includes(id)) { fire(id, 'crown'); setTimeout(() => lightAgent(id, false), 500); }
       agentNode(id)?.classList.remove('searching');
       const st = state.stats[id] = state.stats[id] || { n: 0, t: [], last: '' }; st.n++; st.t.push(d.seconds || 0); st.last = d.text || st.last;
       if (d.channel && d.channel !== 'ui' && d.reply) { msg('jarvis', d.reply, state.names[id] || id); play('reply'); }
@@ -378,6 +381,7 @@ function onEvent(ev) {
     case 'reminder.created': case 'reminder.cancelled': sys(`⏰ ${ev.message}`); fire('root', 'urd'); refreshCalendar(); break;
     case 'calendar.created': case 'calendar.updated': case 'calendar.cancelled': sys(`📅 ${ev.message}`); fire('root', 'urd'); refreshCalendar(); break;
     case 'reminder.delivered': sys(`⏰ ${ev.message}`); tree.pulseWell('urd'); toast('⏰ PÅMINNELSE', ev.message.replace(/^Påminnelse skickad: /, '')); play('reminder'); refreshCalendar(); break;
+    case 'lesson.added': case 'lesson.removed': sys(`📜 ${ev.message}`); tree.pulseWell('mimer'); break;
     case 'memory.synced': sys('Långtidsminnet uppdaterat'); tree.pulseWell('mimer'); break;
     case 'memory.document_added': sys(`📄 ${ev.message}`); tree.pulseWell('mimer'); break;
     case 'security.rejected': { state.securityRejected++; const b = $('secBadge'); b.hidden = false; b.textContent = state.securityRejected; sys(`🛡️ ${ev.message}`); tree.pulseWell('hvergelmer'); break; }

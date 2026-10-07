@@ -254,7 +254,7 @@ To prevent API hallucination, all components must strictly interface with these 
   `check_once(now=None) -> int`, `run_forever(stop: Optional[threading.Event] = None)`
 * **`core.events.event_bus`** (singleton `EventBus`)
   `publish(type, source, message, **data) -> Optional[Event]` (never raises), `subscribe() -> queue.Queue`, `unsubscribe(q)`, `recent(after_id=0, limit=200) -> list[Event]`
-  Event types: `core.starting|online|offline|failed`, `query.received|queued|completed`, `agent.selected`, `memory.lookup|synced`, `websearch.query|results|failed`, `reminder.created|delivered`, `calendar.created|updated|cancelled`, `security.rejected`
+  Event types: `core.starting|online|offline|failed`, `query.received|queued|completed`, `agent.selected`, `memory.lookup|synced`, `websearch.query|results|failed`, `reminder.created|delivered|cancelled`, `calendar.created|updated|cancelled`, `lesson.added|removed`, `security.rejected`
 * **`core.single_instance`**
   `acquire_lock() -> Optional[socket]`, `lock_is_held() -> bool`
 * **`core.jarvis_core.JarvisCore`**
@@ -511,6 +511,12 @@ Desktop app: pywebview window (WebView2), token only via JS bridge (`get_token`)
 UI: tree variant 2 with cached branches, rune ring, blaster bolts crown→agent / root→wells, wells Mimer/Urd/Hvergelmer, family nodes (rolling 7 days from reminders + calendar), Urd calendar (see Family Calendar below), log with history paging + Telegram messages + steps toggle + search, chat via `/chat` (channel `ui`), file drop → Oden asks folder, background image + 7 sliders, sound levels per category + master mute (persisted). Weather, sports ticker, mail, Slack and Hvergelmer checks are placeholders/hidden until their steps.
 Status: Verified live on Windows by the user (window, tray, hotkey, UI).
 
+## ✅ Lessons ("lärdomar") – the user teaches Oden
+Locations: `services/lessons_service.py` (`LessonBook`, singleton `lesson_book`), `agents/lessons_agent.py` (`LessonsAgent`, agent id `lessons_agent`, display name = Oden).
+Lessons live one per line in `data/lessons.md` (`- [scope] text`, hand-editable, re-read on mtime change, max 60 × 300 chars). Scopes: alla (all agents except router), oden (router), kalender, påminnelser, allmänt, utbildning, karriär, business, webb, sociala medier, content. `lesson_book.block_for(agent_id)` is appended after `{self.system_prompt}` in every agent prompt and in the router prompt ("follow unless they conflict with the System Instructions"). Fail-soft.
+LessonsAgent uses no LLM: fixed regexes for "lär dig: …", "vad har du lärt dig?", "glöm lärdom N"; scope from a prefix (`[kalender]`, `kalender:`) or simple hints, correctable with "bara kalendern"/"gäller alla"; confirmation via `lessons_agent.pending`. Orchestrator Step 0 routes these commands (and scope corrections while a lesson is pending) to LessonsAgent before the pending-reply check and the Router. Events `lesson.added|removed`.
+Status: Implemented, tested (service, agent, end-to-end through the API with fake Ollama, prompt injection verified); pending live verification.
+
 ## ✅ Family Calendar "Urd"
 Locations: `services/calendar_service.py`, `agents/calendar_agent.py`, `prompts/calendar_agent.txt`, `ui/js/calendar.js`; router category `calendar` (prompts/router.txt section 8; REMINDERS narrowed to "påminn mig").
 CalendarService: SQLite table `calendar_events` (person, kind event|work|match, title, start_at/end_at UTC, location, details JSON, status, source 'local', external_id reserved for Google sync, all_day, recurrence JSON, skip_dates JSON; columns migrated in place); add/update/cancel/skip/get/between/upcoming/series. All-day bookings span whole days (local midnight → midnight after last day, ≤62 days) and render as banners. Recurrence `{freq weekly|biweekly|monthly, parity ''|even|odd (ISO week), until}` is expanded on read into occurrences (`key` = `<id>@<first day>`); `skip(id, day)` removes one occurrence; extra/moved days are new bookings; events `calendar.created|updated|cancelled`. Match details validated: sport fotboll|innebandy (icons ⚽/🏑), division, home, away, role, gather HH:MM, officials [{role,name}] ≤8. Formats: title `H4 AD Floda - Gunnilse`, short `⚽ H4 (AD) Floda - Gunnilse`.
@@ -578,6 +584,7 @@ Status: All 7 agents verified.
 | Telegram two-way chat | ✅ |
 | Desktop interface Yggdrasil (window, tray, hotkey, live brain map) | ✅ |
 | Family calendar Urd (CalendarService + CalendarAgent + day/week/month UI) | 🔧 Pending live test |
+| Lessons (LessonBook + LessonsAgent, data/lessons.md) | 🔧 Pending live test |
 | Autostart chain (Ollama, Docker/SearXNG, Jarvis task) | ✅ (re-check after install_core.ps1) |
 | SearXNG (Docker, hardened) | ✅ |
 | WebSearchService + date awareness | ✅ |

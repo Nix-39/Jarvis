@@ -30,6 +30,7 @@ from services.memory_service import (
     format_conversation_history,
 )
 from services.ollama_service import OllamaService
+from services.lessons_service import lesson_book
 from services.prompt_loader import PromptLoader
 from services.reminder_service import (
     RECURRENCE_LABELS,
@@ -214,7 +215,7 @@ class ReminderAgent:
         prompt = f"""
 System Instructions:
 {self.system_prompt}
-
+{lesson_book.block_for(self.AGENT_ID)}
 Current date and time: {current_datetime_text()} (ISO: {datetime.now().astimezone():%Y-%m-%d %H:%M})
 
 Available categories: {categories}
