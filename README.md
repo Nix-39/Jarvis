@@ -198,7 +198,7 @@ jarvis/
 ├── scripts/
 │   ├── install_core.ps1    # Autostart Jarvis Core at login (no window)
 │   ├── restart_core.ps1    # Restart (or -Stop) Jarvis Core, e.g. after editing .env
-│   ├── install_desktop.ps1 # Desktop shortcut + tray app at login
+│   ├── install_desktop.ps1 # Desktop + Start menu shortcut (AppUserModelID), tray app at login
 │   └── check_autostart.ps1 # Verify that everything starts and runs
 ├── docker/searxng/         # Private search engine (docker-compose + settings)
 ├── ui/                     # Desktop interface (HTML/CSS/JS modules, icon) served by the core
