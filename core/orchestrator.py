@@ -33,6 +33,7 @@ from agents.general_agent import GeneralAgent
 from agents.lessons_agent import LessonsAgent
 from agents.reminder_agent import ReminderAgent
 from agents.socialmediamanager_agent import SocialMediaManagerAgent
+from agents.sports_agent import SportsAgent
 from agents.webdeveloper_agent import WebDeveloperAgent
 
 logger = get_logger(__name__)
@@ -83,6 +84,7 @@ class JarvisOrchestrator:
         reminder_service: Optional[ReminderService] = None,
         calendar_service: Optional[CalendarService] = None,
         people_provider: Optional[Callable[[], list]] = None,
+        sports_leagues: Optional[tuple[Callable[[], list], Callable[[list], object]]] = None,
     ) -> None:
         """
         Initialize the Orchestrator with infrastructure services, router, and registered agents.
@@ -93,6 +95,8 @@ class JarvisOrchestrator:
         :param vector_service: Optional VectorService instance. Self-initialized if None.
         :param web_service: Optional WebSearchService instance. Self-initialized if None.
         :param reminder_service: Optional ReminderService instance. Self-initialized if None.
+        :param sports_leagues: Optional (get, set) callables for the sports ticker's leagues;
+                               enables SportsAgent ("lägg till Premier League i resultaten").
         """
         logger.info("Initializing Jarvis Orchestrator pipeline...")
 
@@ -171,6 +175,9 @@ class JarvisOrchestrator:
             ),
         }
 
+        if sports_leagues is not None:
+            self.agent_registry["sports_agent"] = SportsAgent(*sports_leagues, memory_service=self.memory_service)
+
         # 3. Initialize Planner with the validated agent registry
         self.planner = Planner(agent_registry=self.agent_registry)
 
@@ -204,6 +211,13 @@ class JarvisOrchestrator:
 
         # Step 0: "Oden, lär dig: ..." / "vad har du lärt dig?" / "glöm lärdom 2" - fixed
         #         commands recognised in Python (never by the model) go to LessonsAgent.
+        if "sports_agent" in self.agent_registry and SportsAgent.is_command(user_message):
+            event_bus.publish(
+                "agent.selected", "orchestrator", "Resultatlistan → Oden",
+                agent="sports_agent", category=None, reason="sports",
+            )
+            return self._run("sports_agent", user_message, channel)
+
         lessons = self.agent_registry.get("lessons_agent")
         if lessons is not None and (
             LessonsAgent.is_command(user_message)

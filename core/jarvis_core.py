@@ -65,6 +65,7 @@ class JarvisCore:
         from services.backup_service import BackupService
         from services.calendar_service import CalendarService
         from services.reminder_service import ReminderService
+        from services.sports_service import SportsService
         from services.system_monitor import SystemMonitor
         from services.ui_settings import UiSettingsService
 
@@ -76,6 +77,7 @@ class JarvisCore:
         self.calendar = CalendarService()
         self.system_monitor = SystemMonitor()
         self.backup = BackupService(notify=self.notifications.notify)
+        self.sports = SportsService(lambda: self.ui_settings.get().sports.leagues)
         self.orchestrator: Any = None
         self.telegram: Any = None
         self.ready = False
@@ -93,6 +95,7 @@ class JarvisCore:
         """Reminders first: they need neither Ollama nor the vector index."""
         self._start_thread("scheduler", self.scheduler.run_forever, self._stop)
         self._start_thread("backup", self.backup.run_forever, self._stop)
+        self._start_thread("sports", self.sports.run_forever, self._stop)
 
     def start_brain(self, orchestrator: Any = None) -> None:
         """Wait for Ollama, start the Orchestrator and the Telegram bot. Raises on fatal errors."""
@@ -107,6 +110,7 @@ class JarvisCore:
                 reminder_service=self.reminders,
                 calendar_service=self.calendar,
                 people_provider=self.people,
+                sports_leagues=(lambda: self.ui_settings.get().sports.leagues, self.set_sports_leagues),
             )
         self.orchestrator = orchestrator
 
@@ -129,6 +133,12 @@ class JarvisCore:
         event_bus.publish("core.online", "core", "Jarvis är online")
         if self.telegram and not self.telegram.setup_mode and Config.TELEGRAM_STARTUP_MESSAGE:
             self.telegram.send_text("🟢 Jarvis är online")
+
+    def set_sports_leagues(self, leagues: list[str]) -> None:
+        """Change the ticker's leagues (from SportsAgent) and fetch the new ones right away."""
+        self.ui_settings.update({"sports": {"leagues": leagues}})
+        event_bus.publish("sports.leagues", "sports", "Resultatlistan ändrad", leagues=leagues)
+        self.sports.wake()
 
     def people(self) -> list[dict[str, str]]:
         """Family members (id, name, full name) for the calendar agent."""

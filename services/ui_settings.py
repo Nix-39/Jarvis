@@ -73,6 +73,19 @@ class Sound(BaseModel):
         return {k[:20]: max(0, min(100, int(v))) for k, v in list(value.items())[:20]}
 
 
+class Sports(BaseModel):
+    leagues: list[str] = Field(default_factory=lambda: ["shl", "allsvenskan"])   # keys in services.sports_service.CATALOG
+
+    @field_validator("leagues")
+    @classmethod
+    def _keys(cls, value: list[str]) -> list[str]:
+        out: list[str] = []
+        for key in value[:30]:
+            if re.fullmatch(r"[a-z0-9_]{1,24}", str(key)) and key not in out:
+                out.append(key)
+        return out
+
+
 class UiSettings(BaseModel):
     system_name: str = Field("Yggdrasil", min_length=1, max_length=30)
     orchestrator_name: str = Field("Oden", min_length=1, max_length=30)
@@ -88,6 +101,7 @@ class UiSettings(BaseModel):
     ])
     background: Background = Field(default_factory=Background)
     sound: Sound = Field(default_factory=Sound)
+    sports: Sports = Field(default_factory=Sports)
     show_steps: bool = True
 
     @field_validator("people")

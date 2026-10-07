@@ -29,7 +29,7 @@ everything personal goes through the token-protected endpoints below):
     GET|PATCH /settings                   display names, people, background, sound
     GET  /documents/folders, PUT /documents?folder=&name=   (raw file body)
     GET|PUT|DELETE /assets/background, GET|PUT /people/{id}/photo   (raw image body)
-    GET  /backup/status, POST /backup/run
+    GET  /backup/status, POST /backup/run, GET /sports, GET /sports/catalog, PUT /sports/leagues, GET /sports/logo/{file} (public)
     GET  /calendar/events?start=&end=, DELETE /calendar/events/{id}[?occurrence=YYYY-MM-DD], DELETE /reminders/{id}
 """
 
@@ -68,7 +68,7 @@ SSE_POLL_SECONDS = 0.25
 DOC_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
 MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
 FOLDER_PART = re.compile(r"^[\w\- åäöÅÄÖ]{1,40}$")
-CSP = ("default-src 'self'; img-src 'self' data: blob: https://a.espncdn.com; style-src 'self' 'unsafe-inline'; "
+CSP = ("default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
        "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 
 
@@ -297,6 +297,35 @@ def _add_desktop_routes(app: FastAPI, core: "JarvisCore", authorized: list) -> N
         if hi - lo > timedelta(days=400):
             raise HTTPException(status_code=400, detail="För stort intervall.")
         return [e.to_dict() for e in core.calendar.between(lo, hi)]
+
+    @app.get("/sports", dependencies=authorized)
+    def sports() -> dict[str, Any]:
+        return core.sports.snapshot()
+
+    @app.get("/sports/catalog", dependencies=authorized)
+    def sports_catalog() -> list[dict[str, str]]:
+        from services.sports_service import CATALOG
+
+        return [{"key": l.key, "name": l.name, "group": l.group} for l in CATALOG.values()]
+
+    @app.put("/sports/leagues", dependencies=authorized)
+    def sports_leagues(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        from services.sports_service import CATALOG, MAX_LEAGUES
+
+        leagues = body.get("leagues")
+        if not isinstance(leagues, list) or len(leagues) > MAX_LEAGUES or any(k not in CATALOG for k in leagues):
+            raise HTTPException(status_code=400, detail="Ogiltig ligalista.")
+        core.set_sports_leagues(list(dict.fromkeys(leagues)))
+        return {"leagues": leagues}
+
+    @app.get("/sports/logo/{name}")
+    def sports_logo(name: str) -> FileResponse:
+        """Cached team logos (public sports data, no personal information)."""
+        path = core.sports.logo_path(name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        media = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}[path.suffix[1:]]
+        return FileResponse(path, media_type=media, headers={"Cache-Control": "max-age=604800"})
 
     @app.get("/backup/status", dependencies=authorized)
     def backup_status() -> dict[str, Any]:

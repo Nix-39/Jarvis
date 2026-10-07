@@ -109,6 +109,14 @@ Security: the interface is a web page served by the core on `127.0.0.1` and show
 - **Notifications as channels** (`NotificationService`): Windows toast and Telegram today, a future Jarvis mobile app plugs in as another channel. Notification text is passed to PowerShell via environment variables and XML-escaped, never interpolated into a command.
 - **Categories** live in `data/reminder_categories.txt` (private). Reminders store a reserved `calendar_event_id` for the upcoming Google Calendar integration.
 
+## Sports ticker
+
+A results bar along the bottom of Yggdrasil: each league's latest round of results and its next games, 2–4 at a time, with a LIVE badge while a game is on. When a league has been shown it moves on to the next. The league menu (bottom left, scrollable) jumps to a league and adds or removes leagues; rotation continues afterwards. Click the bar for all games with team logos; click a game to open it on ESPN (or shl.se).
+
+- **Sources:** ESPN's public scoreboard JSON for most leagues (Allsvenskan, Premier League, Champions League, NHL, NBA ...; game days are read from the league calendar since the endpoint has no date ranges) and TheSportsDB's free API for SHL, HockeyAllsvenskan, SDHL, Damallsvenskan, Liiga, KHL and more. 38 leagues are built in, up to 30 can be shown. Both sit behind one `Game` model, so a provider can be swapped without touching the interface.
+- **Choose leagues by talking to Oden:** "lägg till Premier League i resultaten", "ta bort NHL från resultaten", "vilka ligor finns?". Recognised by fixed patterns (no model), stored in `data/ui/settings.json`. Default: SHL and Allsvenskan.
+- **Privacy and safety:** only Jarvis Core talks to the internet – fixed hosts, timeouts and size limits; it refreshes every 10 minutes (every minute while a game is live) and caches the team logos locally (checked by magic bytes), so the interface itself makes no external requests.
+
 ## Encrypted backup
 
 Every night (03:00, or as soon as the computer is on after a missed night) Jarvis Core backs up `data/` to a folder on another disk:
@@ -212,6 +220,7 @@ jarvis/
 │   ├── prompt_loader.py
 │   ├── memory_service.py   # Short-term memory (SQLite)
 │   ├── backup_service.py   # Encrypted nightly backup of data/ (AES-256-GCM)
+│   ├── sports_service.py   # Sports results (ESPN + TheSportsDB), logo cache
 │   ├── calendar_service.py # Family calendar Urd (SQLite: bookings, shifts, matches)
 │   ├── lessons_service.py  # The user's lessons for Oden (data/lessons.md)
 │   ├── notification_service.py  # Windows toast + Telegram channels
@@ -339,7 +348,8 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | Family calendar Urd (bookings, work shifts, referee matches, day/week/month views) | ✅ Implemented |
 | Lessons – teach Oden in plain Swedish (data/lessons.md) | ✅ Implemented |
 | Encrypted nightly backup of data/ (AES-256-GCM, verified, restore CLI) | ✅ Implemented |
-| Weather (SMHI) + sports results ticker (ESPN) | 📋 Planned |
+| Sports results ticker (ESPN + TheSportsDB, leagues chosen via Oden) | ✅ Implemented |
+| Weather (SMHI) | 📋 Planned (next) |
 | Hvergelmer security checks, Gmail, Slack, morning briefing | 📋 Planned |
 | Google Calendar (family calendars, categories) | 📋 Planned |
 | Own Jarvis mobile app (API + Tailscale) | 📋 Planned |

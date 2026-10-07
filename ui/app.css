@@ -347,3 +347,18 @@ body.no-sports #stage{bottom:0}
 .mbar.empty{background:none}
 .evd-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 .backupbtn{margin-top:7px}
+.card{cursor:pointer}.sc-grid>.x{color:var(--muted);font-size:13px;padding:10px}
+/* league menu: shown leagues (jump / remove) + leagues to add, scrollable */
+#leagueMenu{width:260px;max-height:min(62vh,560px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--accent) transparent;cursor:default}
+#leagueMenu .lm-head{font:700 10.5px "Segoe UI";letter-spacing:.2em;color:var(--muted);text-transform:uppercase;padding:8px 9px 4px;margin:0}
+#leagueMenu .lm-group{font:600 11px "Segoe UI";letter-spacing:.12em;color:var(--accent-2);opacity:.75;padding:7px 9px 2px;margin:0}
+#leagueMenu .lm-row{align-items:center;gap:8px}
+#leagueMenu .lm-row span{flex:1}
+#leagueMenu .lm-row small{color:var(--muted);font-weight:400;letter-spacing:0}
+#leagueMenu .lm-row.on{color:var(--hot);background:rgba(240,180,60,.08)}
+#leagueMenu .lm-row.add{color:var(--muted);font-weight:500;letter-spacing:.04em}
+#leagueMenu .lm-row.add:hover{color:var(--hot)}
+#leagueMenu .lm-x{background:none;border:0;color:var(--muted);cursor:pointer;font-size:11px;padding:0 2px;opacity:.6}
+#leagueMenu .lm-x:hover{color:#e05a4a;opacity:1}
+#leagueMenu{background:rgb(8,6,3);box-shadow:0 -8px 30px rgba(0,0,0,.7)}
+#leagueMenu .lm-row[data-go]{cursor:pointer}
