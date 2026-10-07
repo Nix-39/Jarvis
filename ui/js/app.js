@@ -4,6 +4,7 @@ import { Tree, WELLS, S as TREE_S } from './tree.js';
 import { Myth, Sparks } from './runes.js';
 import { Bolts } from './effects.js';
 import { SportsTicker } from './sports.js';
+import { WeatherWidget } from './weather.js';
 import { Calendar, today0, addDays, sameDay, dayLabel, timeSpan, MON, detailHTML, whenLabel, rangeShort } from './calendar.js';
 
 const $ = (id) => document.getElementById(id);
@@ -39,6 +40,7 @@ const calendar = new Calendar($('cal'), { onDelete: async (ev, { whole = true } 
 } });
 const panel = $('panel');
 const sports = new SportsTicker({ onLayout: () => dispatchEvent(new Event('resize')) });
+const weather = new WeatherWidget({ openPanel: (html) => openPanel(html), isPanel: (title) => panel.classList.contains('open') && panel.querySelector('h3')?.textContent.startsWith(title) });
 let anchors = {}, geo = null;
 
 /* =====================================================================
@@ -66,10 +68,11 @@ async function boot() {
   calendar.setPeople(state.settings.people);
   layout();
   $('lock').classList.add('gone');
-  await Promise.allSettled([loadHistory(), refreshStatus(), refreshCalendar(), refreshSystem(), loadBackground(), sports.refresh()]);
+  await Promise.allSettled([loadHistory(), refreshStatus(), refreshCalendar(), refreshSystem(), loadBackground(), sports.refresh(), weather.refresh()]);
   followEvents(onEvent, (up) => { if (!up) setStatus('Tappade kontakten med kärnan – försöker igen…'); else setStatus(null); });
   setInterval(refreshStatus, 15000); setInterval(refreshSystem, 2000); setInterval(refreshCalendar, 60000);
   setInterval(() => sports.refresh(), 60000);
+  setInterval(() => weather.refresh(), 300000);
   setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('sv-SE'); }, 1000);
   requestAnimationFrame(loop);
 }
@@ -413,6 +416,7 @@ function onEvent(ev) {
       if (panel.classList.contains('open') && panel.textContent.includes('HVERGELMER')) openHvergelmer();
       break; }
     case 'sports.updated': case 'sports.leagues': sports.refresh(); break;
+    case 'weather.updated': weather.refresh(); break;
     case 'lesson.added': case 'lesson.removed': sys(`📜 ${ev.message}`); tree.pulseWell('mimer'); break;
     case 'memory.synced': sys('Långtidsminnet uppdaterat'); tree.pulseWell('mimer'); break;
     case 'memory.document_added': sys(`📄 ${ev.message}`); tree.pulseWell('mimer'); break;

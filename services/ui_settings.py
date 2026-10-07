@@ -86,6 +86,12 @@ class Sports(BaseModel):
         return out
 
 
+class Weather(BaseModel):
+    name: str = Field("Gunnilse", min_length=1, max_length=40)
+    lat: float = Field(57.82, ge=55.0, le=70.0)     # SMHI covers the Nordic region
+    lon: float = Field(12.08, ge=4.0, le=32.0)
+
+
 class UiSettings(BaseModel):
     system_name: str = Field("Yggdrasil", min_length=1, max_length=30)
     orchestrator_name: str = Field("Oden", min_length=1, max_length=30)
@@ -102,6 +108,7 @@ class UiSettings(BaseModel):
     background: Background = Field(default_factory=Background)
     sound: Sound = Field(default_factory=Sound)
     sports: Sports = Field(default_factory=Sports)
+    weather: Weather = Field(default_factory=Weather)
     show_steps: bool = True
 
     @field_validator("people")

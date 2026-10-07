@@ -362,3 +362,7 @@ body.no-sports #stage{bottom:0}
 #leagueMenu .lm-x:hover{color:#e05a4a;opacity:1}
 #leagueMenu{background:rgb(8,6,3);box-shadow:0 -8px 30px rgba(0,0,0,.7)}
 #leagueMenu .lm-row[data-go]{cursor:pointer}
+.wxalert.dry{border-color:var(--dim);background:rgba(255,255,255,.02);color:var(--muted)}
+.days .r small{display:block;font-size:10.5px;color:#7cc4ff}
+.days .bar2{min-width:6px}
+.days .d{grid-template-columns:64px 26px 1fr 78px}

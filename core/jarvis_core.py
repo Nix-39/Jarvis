@@ -66,6 +66,7 @@ class JarvisCore:
         from services.calendar_service import CalendarService
         from services.reminder_service import ReminderService
         from services.sports_service import SportsService
+        from services.weather_service import WeatherService
         from services.system_monitor import SystemMonitor
         from services.ui_settings import UiSettingsService
 
@@ -78,6 +79,7 @@ class JarvisCore:
         self.system_monitor = SystemMonitor()
         self.backup = BackupService(notify=self.notifications.notify)
         self.sports = SportsService(lambda: self.ui_settings.get().sports.leagues)
+        self.weather = WeatherService(lambda: self.ui_settings.get().weather.model_dump())
         self.orchestrator: Any = None
         self.telegram: Any = None
         self.ready = False
@@ -96,6 +98,7 @@ class JarvisCore:
         self._start_thread("scheduler", self.scheduler.run_forever, self._stop)
         self._start_thread("backup", self.backup.run_forever, self._stop)
         self._start_thread("sports", self.sports.run_forever, self._stop)
+        self._start_thread("weather", self.weather.run_forever, self._stop)
 
     def start_brain(self, orchestrator: Any = None) -> None:
         """Wait for Ollama, start the Orchestrator and the Telegram bot. Raises on fatal errors."""

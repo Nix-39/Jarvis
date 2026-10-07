@@ -254,7 +254,7 @@ To prevent API hallucination, all components must strictly interface with these 
   `check_once(now=None) -> int`, `run_forever(stop: Optional[threading.Event] = None)`
 * **`core.events.event_bus`** (singleton `EventBus`)
   `publish(type, source, message, **data) -> Optional[Event]` (never raises), `subscribe() -> queue.Queue`, `unsubscribe(q)`, `recent(after_id=0, limit=200) -> list[Event]`
-  Event types: `core.starting|online|offline|failed`, `query.received|queued|completed`, `agent.selected`, `memory.lookup|synced`, `websearch.query|results|failed`, `reminder.created|delivered|cancelled`, `calendar.created|updated|cancelled`, `lesson.added|removed`, `backup.started|completed|failed`, `sports.updated|leagues`, `security.rejected`
+  Event types: `core.starting|online|offline|failed`, `query.received|queued|completed`, `agent.selected`, `memory.lookup|synced`, `websearch.query|results|failed`, `reminder.created|delivered|cancelled`, `calendar.created|updated|cancelled`, `lesson.added|removed`, `backup.started|completed|failed`, `sports.updated|leagues`, `weather.updated`, `security.rejected`
 * **`core.single_instance`**
   `acquire_lock() -> Optional[socket]`, `lock_is_held() -> bool`
 * **`core.jarvis_core.JarvisCore`**
@@ -511,6 +511,14 @@ Desktop app: pywebview window (WebView2), token only via JS bridge (`get_token`)
 UI: tree variant 2 with cached branches, rune ring, blaster bolts crown→agent / root→wells, wells Mimer/Urd/Hvergelmer, family nodes (rolling 7 days from reminders + calendar), Urd calendar (see Family Calendar below), log with history paging + Telegram messages + steps toggle + search, chat via `/chat` (channel `ui`), file drop → Oden asks folder, background image + 7 sliders, sound levels per category + master mute (persisted). Weather, sports ticker, mail, Slack and Hvergelmer checks are placeholders/hidden until their steps.
 Status: Verified live on Windows by the user (window, tray, hotkey, UI).
 
+## ✅ Weather (SMHI)
+Locations: `services/weather_service.py` (`WeatherService`, `summarize`), `ui/js/weather.js` (`WeatherWidget`, SVG icons), thread `weather` in Jarvis Core, `GET /weather`.
+Source: SMHI SNOW1gv1 point forecast `opendata-download-metfcst.smhi.se/api/category/snow1g/version/1/geotype/point/lon/{lon}/lat/{lat}/data.json` (PMP3gv2 was shut down 2026-03-31). Items: `time` (end of interval), `intervalParametersStartTime`, `data` with `air_temperature`, `wind_speed`, `wind_speed_of_gust`, `wind_from_direction`, `precipitation_amount_mean/max`, `probability_of_precipitation`, `symbol_code` 1–27 (9999 = missing). Hourly ~3 days, then 6/12 h.
+Summary: now (temp, wind-chill feels-like when ≤10° and wind ≥2 m/s, text, icon with night moon 20–06, wind m/s + compass, gusts); rain alert next 12 h (≥0.2 mm/h: start/end/total, kind rain/snow/sleet/thunder, badge "regn 17:00" / "regn nu"); hours strip 24 h labelled by interval start; 5 days (min/max, most common daytime symbol, note Blåsigt ≥10 m/s / "x mm" from hourly part / Regn). Refresh 30 min (retry 5 min on failure), fixed host, 15 s timeout, 3 MB cap, values range-checked. Event `weather.updated`.
+Place: `settings.weather` {name "Gunnilse", lat 57.82, lon 12.08} (validated to the Nordic region).
+UI: header button (icon, temp, orange rain badge) → panel "VÄDER · GUNNILSE" with now, alert, hours, days (temperature range bars), source line.
+Status: Implemented, tested with a mocked SNOW1gv1 response (summary, alert, API, UI); real response shape verified via SMHI; pending live verification.
+
 ## ✅ Sports Ticker
 Locations: `services/sports_service.py` (`SportsService`, `CATALOG`), `agents/sports_agent.py` (`SportsAgent`, id `sports_agent`, label Oden), `ui/js/sports.js` (`SportsTicker`), thread `sports` in Jarvis Core.
 Providers: ESPN `site.api.espn.com/apis/site/v2/sports/<sport>/<league>/scoreboard` – no date ranges (a range gives HTTP 400): the plain call returns the current/next game day plus `leagues[0].calendar` (game days); then `?dates=YYYYMMDD` for the latest played round (≤3 game days) and the next 2 game days (non-day calendars, e.g. NFL: yesterday + day before). TheSportsDB free key `123` (eventspastleague → latest round r; eventsround r, r+1, r+2; keep finished/live games and the next game day). CATALOG has 38 leagues with `group` (Sverige incl. SHL 4419, HockeyAllsvenskan 5162, SDHL 5158, Damallsvenskan 5209, Svenska Cupen 4756, Div 1 S/N 4845/4674; Fotboll: eng.1/2/fa, esp.1, ita.1, ger.1, fra.1, ned.1, por.1, sco.1, den.1, nor.1, usa.1; Europa & landslag: CL, EL, ECL, Nations League, VM, VM-kval, EM; Hockey: NHL, Liiga 4931, KHL 4920, DEL 4925, National League 4934; Övrigt: NBA, WNBA, NFL, MLB). Unified `Game{id, league, start UTC, state pre|in|post, status (Swedish: Slut / Slut (ÖT) / Slut (str) / 63'), home/away Team{name, short, score, winner, logo}, url}`. SHL short names from a built-in map.
@@ -604,6 +612,7 @@ Status: All 7 agents verified.
 | Lessons (LessonBook + LessonsAgent, data/lessons.md) | 🔧 Pending live test |
 | Encrypted backup (BackupService, AES-256-GCM, restore CLI) | 🔧 Pending live test |
 | Sports ticker (SportsService, SportsAgent, ticker UI) | 🔧 Pending live test |
+| Weather (WeatherService SMHI SNOW1gv1, header + panel) | 🔧 Pending live test |
 | Autostart chain (Ollama, Docker/SearXNG, Jarvis task) | ✅ (re-check after install_core.ps1) |
 | SearXNG (Docker, hardened) | ✅ |
 | WebSearchService + date awareness | ✅ |
@@ -659,7 +668,7 @@ text_to_speech_service.py (planned)
 
 # Roadmap (agreed order)
 
-1. **Visual desktop interface – step 1 DONE (verified).** **Urd local calendar, lessons and encrypted backup DONE (pending live test); PIN lock dropped.** Sports ticker DONE (pending live test). Next: weather (SMHI open data, default location Gunnilse, Göteborg). Original scope: web UI served by Jarvis Core on 127.0.0.1, shown in its own app window; desktop icon; tray icon (Jarvis keeps running in the background when the window closes); global hotkey (e.g. Ctrl+Alt+J) to bring it up; chat window for typing (quiet hours when the family sleeps); sound on/off toggle; live "second brain" map of the Orchestrator and agents driven by `/events/stream` (which agent works, web searches, memory lookups, reminders).
+1. **Visual desktop interface – step 1 DONE (verified).** **Urd local calendar, lessons and encrypted backup DONE (pending live test); PIN lock dropped.** Sports ticker and weather (SMHI, Gunnilse) DONE (pending live test). Next: morning briefing from Oden, then Hvergelmer security checks. Original scope: web UI served by Jarvis Core on 127.0.0.1, shown in its own app window; desktop icon; tray icon (Jarvis keeps running in the background when the window closes); global hotkey (e.g. Ctrl+Alt+J) to bring it up; chat window for typing (quiet hours when the family sleeps); sound on/off toggle; live "second brain" map of the Orchestrator and agents driven by `/events/stream` (which agent works, web searches, memory lookups, reminders).
 2. **Voice:** local speech-to-text and text-to-speech, wake word "Hej Jarvis" (both hotkey and wake word wake Jarvis); respects the sound toggle.
 3. **Google Calendar sync on top of the local Urd calendar:** start with the current Google account, move to a new private account later. One calendar per category (each child, family, Robin's work, wife's work, VerkstadsFlow), shared with the wife (iPhone via Google account in iOS Calendar) and shown on an Android tablet as family display. Jarvis picks the calendar from the category ("lägg in BVC-tid för ..."), always with confirmation.
 4. Later: Cal.com booking for VerkstadsFlow (on top of Google Calendar); own mobile app (Jarvis Core API over Tailscale, PWA or .NET MAUI) as another chat/notification channel; social media analytics.

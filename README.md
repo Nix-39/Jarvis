@@ -109,6 +109,13 @@ Security: the interface is a web page served by the core on `127.0.0.1` and show
 - **Notifications as channels** (`NotificationService`): Windows toast and Telegram today, a future Jarvis mobile app plugs in as another channel. Notification text is passed to PowerShell via environment variables and XML-escaped, never interpolated into a command.
 - **Categories** live in `data/reminder_categories.txt` (private). Reminders store a reserved `calendar_event_id` for the upcoming Google Calendar integration.
 
+## Weather
+
+The weather at home in the header (icon, temperature and a badge such as "regn 17:00"); click it for the weather now (feels-like, wind), a rain alert for the next 12 hours, an hourly strip and five days.
+
+- **Source:** SMHI's open point forecast **SNOW1gv1** (the API that replaced PMP3gv2 in 2026), no key. Fetched by Jarvis Core every 30 minutes; the interface only reads the cached summary.
+- **Place:** `weather` in `data/ui/settings.json` (`name`, `lat`, `lon`), default Gunnilse, Göteborg.
+
 ## Sports ticker
 
 A results bar along the bottom of Yggdrasil: each league's latest round of results and its next games, 2–4 at a time, with a LIVE badge while a game is on. When a league has been shown it moves on to the next. The league menu (bottom left, scrollable) jumps to a league and adds or removes leagues; rotation continues afterwards. Click the bar for all games with team logos; click a game to open it on ESPN (or shl.se).
@@ -221,6 +228,7 @@ jarvis/
 │   ├── memory_service.py   # Short-term memory (SQLite)
 │   ├── backup_service.py   # Encrypted nightly backup of data/ (AES-256-GCM)
 │   ├── sports_service.py   # Sports results (ESPN + TheSportsDB), logo cache
+│   ├── weather_service.py  # Weather from SMHI open data (SNOW1gv1)
 │   ├── calendar_service.py # Family calendar Urd (SQLite: bookings, shifts, matches)
 │   ├── lessons_service.py  # The user's lessons for Oden (data/lessons.md)
 │   ├── notification_service.py  # Windows toast + Telegram channels
@@ -349,7 +357,7 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | Lessons – teach Oden in plain Swedish (data/lessons.md) | ✅ Implemented |
 | Encrypted nightly backup of data/ (AES-256-GCM, verified, restore CLI) | ✅ Implemented |
 | Sports results ticker (ESPN + TheSportsDB, leagues chosen via Oden) | ✅ Implemented |
-| Weather (SMHI) | 📋 Planned (next) |
+| Weather (SMHI SNOW1gv1: now, rain alert, hours, 5 days) | ✅ Implemented |
 | Hvergelmer security checks, Gmail, Slack, morning briefing | 📋 Planned |
 | Google Calendar (family calendars, categories) | 📋 Planned |
 | Own Jarvis mobile app (API + Tailscale) | 📋 Planned |

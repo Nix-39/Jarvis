@@ -29,7 +29,7 @@ everything personal goes through the token-protected endpoints below):
     GET|PATCH /settings                   display names, people, background, sound
     GET  /documents/folders, PUT /documents?folder=&name=   (raw file body)
     GET|PUT|DELETE /assets/background, GET|PUT /people/{id}/photo   (raw image body)
-    GET  /backup/status, POST /backup/run, GET /sports, GET /sports/catalog, PUT /sports/leagues, GET /sports/logo/{file} (public)
+    GET  /weather (SMHI, cached), GET /backup/status, POST /backup/run, GET /sports, GET /sports/catalog, PUT /sports/leagues, GET /sports/logo/{file} (public)
     GET  /calendar/events?start=&end=, DELETE /calendar/events/{id}[?occurrence=YYYY-MM-DD], DELETE /reminders/{id}
 """
 
@@ -297,6 +297,10 @@ def _add_desktop_routes(app: FastAPI, core: "JarvisCore", authorized: list) -> N
         if hi - lo > timedelta(days=400):
             raise HTTPException(status_code=400, detail="För stort intervall.")
         return [e.to_dict() for e in core.calendar.between(lo, hi)]
+
+    @app.get("/weather", dependencies=authorized)
+    def weather() -> dict[str, Any]:
+        return core.weather.snapshot()
 
     @app.get("/sports", dependencies=authorized)
     def sports() -> dict[str, Any]:
