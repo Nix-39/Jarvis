@@ -8,8 +8,9 @@ Jarvis coordinates eight specialized AI agents behind a single orchestrator, wit
 
 Jarvis is designed to become a "second brain": an assistant that remembers, finds old information by meaning, and eventually reminds and acts on its own.
 
-- **Routes requests** to the right specialist agent (business, career, web development, education, social media, content creation, reminders, general).
+- **Routes requests** to the right specialist agent (business, career, web development, education, social media, content creation, reminders, calendar, general).
 - **Reminders with confirmation:** "påminn mig på fredag kl 10 om att ringa banken" → Jarvis proposes, you confirm or correct, and an always-on background scheduler notifies you when it is time (Windows notification, Telegram). One-off and recurring (daily, weekdays, weekly, monthly), with categories.
+- **Family calendar (Urd):** "Natta jobbar 9–19:15 på fredag", "jag dömer H4 Floda–Gunnilse på lördag kl 15, samling 14:15, Flodala, jag är AD1, HD är Anders Andersson" → Jarvis shows the booking card, you confirm, and it lands in the calendar. Ordinary bookings, work shifts and referee matches (football/floorball with division, role, venue and the whole referee crew). Ask "hur jobbar Natta på fredag?" and get a direct answer.
 - **Always running, reachable from the phone:** Jarvis Core runs in the background from login. Chat with it in a terminal at the computer, or from anywhere through a private Telegram bot (no open ports).
 - **Short-term memory:** each agent sees the latest turns of its own conversation.
 - **Long-term memory:** semantic search across *all* past conversations, across all agents, so something mentioned weeks ago to one agent can be found by another.
@@ -35,7 +36,7 @@ Jarvis is designed to become a "second brain": an assistant that remembers, find
                                             │
       ┌──────────┬──────────┬──────────┬────┴─────┬──────────┬──────────┬──────────┐
       ▼          ▼          ▼          ▼          ▼          ▼          ▼          ▼
-  Business    Career     WebDev    Education   General    Social     Content   Reminder
+  Business    Career     WebDev    Education   General    Social     Content   Reminder + Calendar
       └──────────┴──────────┴──────────┴────┬─────┴──────────┴──────────┴──────────┘
                                             ▼
                                         Services
@@ -95,7 +96,7 @@ The visual face of the system: **Yggdrasil**, the world tree, with **Oden** as t
 
 - **Live brain map:** the seven agents sit above the tree. When Oden routes a question, three glowing bolts fly from the crown to the agent and back with the answer; memory lookups and reminders travel down the roots to the three wells: **Mimer** (memory), **Urd** (calendar) and **Hvergelmer** (security).
 - **Log and chat** on the right: everything Oden and the agents say and do, including questions from Telegram, with search (Ctrl+F) and history.
-- **Family column:** one node per family member with their next seven days; **Urd** opens a week/month calendar with person filters.
+- **Family column:** one node per family member with their next seven days; click a booking for its full details. **Urd** opens the calendar: a day view with one column per family member ("Idag"), a week view and a month view with week numbers, person filters, and a detail card for every booking (referee matches show division, teams, venue, assembly time and the whole crew).
 - **Drop a document** anywhere on the window and Oden asks which folder it belongs in, saves it and learns it.
 - **Always available:** own window with icon, system tray, starts hidden at login, global hotkey **Ctrl+Alt+J**. Background image, sound levels and names are personal settings in `data/ui/`.
 
@@ -107,6 +108,22 @@ Security: the interface is a web page served by the core on `127.0.0.1` and show
 - **Scheduler** (`core/scheduler.py`) runs as a thread inside Jarvis Core. It checks for due reminders every 30 seconds and delivers reminders missed while the computer was off (marked as late).
 - **Notifications as channels** (`NotificationService`): Windows toast and Telegram today, a future Jarvis mobile app plugs in as another channel. Notification text is passed to PowerShell via environment variables and XML-escaped, never interpolated into a command.
 - **Categories** live in `data/reminder_categories.txt` (private). Reminders store a reserved `calendar_event_id` for the upcoming Google Calendar integration.
+
+## Calendar – Urd
+
+- **CalendarService** (`services/calendar_service.py`) stores bookings per family member in SQLite (`calendar_events`): kind `event`, `work` or `match`, start/end in UTC, location and validated details. Each event has `source` and `external_id` reserved for Google Calendar sync.
+- **Referee matches** store sport (fotboll/innebandy), division, home and away team, own role, assembly time and the crew (`HD`, `AD1`, `AD2` ...). They are shown as `⚽ H4 (AD) Floda - Gunnilse` in lists and in full in the detail card:
+  ```
+  ⚽ H4 AD Floda - Gunnilse
+  Flodala
+  HD: Anders Andersson
+  AD1: Robin Boqvist
+  AD2: Johan Johansson
+  ```
+- **CalendarAgent** also sees reminders (they show in the same calendar) and can list and remove them.
+- **CalendarAgent** works like ReminderAgent: the model only produces a structured proposal, you confirm with "ja", and validated Python code writes to the database. It can add, list and remove bookings. Your own name in the referee crew comes from `full_name` for the first person in `data/ui/settings.json`.
+- **Several days and recurring bookings:** trips, courses and cups are all-day bookings shown as one banner across the days ("Rydboholm Cup mån–sön"), and bookings can repeat weekly, every other week (also pinned to even/odd weeks: "Julian är hos oss tor–sön varannan jämn vecka resten av året") or monthly. Single days of a series can be removed ("Julian är inte här vecka 44") and extra days added. The model only describes the request; Python computes every date and week number.
+- Night shifts (22:00–06:30) roll over to the next day automatically; matches get a default length (football 120 min, floorball 90 min).
 
 ## Tech stack
 
@@ -162,6 +179,7 @@ jarvis/
 │   ├── ollama_service.py   # chat() + embed()
 │   ├── prompt_loader.py
 │   ├── memory_service.py   # Short-term memory (SQLite)
+│   ├── calendar_service.py # Family calendar Urd (SQLite: bookings, shifts, matches)
 │   ├── notification_service.py  # Windows toast + Telegram channels
 │   ├── reminder_service.py # Reminders (SQLite, recurrence)
 │   ├── system_monitor.py   # GPU load / VRAM for the interface
@@ -271,7 +289,7 @@ New, changed and deleted files are picked up automatically. Useful commands:
 |---|---|
 | Config, Logger, PromptLoader, OllamaService | ✅ Verified |
 | Router, Planner, Orchestrator | ✅ Verified & tested |
-| 7 specialist agents (+ ReminderAgent) | ✅ Verified |
+| 7 specialist agents (+ ReminderAgent, CalendarAgent) | ✅ Verified |
 | MemoryService (short-term memory) | ✅ Verified |
 | VectorService (long-term memory + documents) | ✅ Verified |
 | Terminal chat (`jarvis.bat`) | ✅ Verified |
@@ -280,7 +298,8 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | ReminderAgent + scheduler + notifications | ✅ Verified |
 | Jarvis Core (always running) + local API + event feed | ✅ Implemented |
 | Telegram two-way chat (mobile access) | ✅ Implemented |
-| Desktop interface "Yggdrasil" (brain map, log/chat, family calendar, tray, hotkey) | ✅ Implemented |
+| Desktop interface "Yggdrasil" (brain map, log/chat, family column, tray, hotkey) | ✅ Verified |
+| Family calendar Urd (bookings, work shifts, referee matches, day/week/month views) | ✅ Implemented |
 | Encrypted nightly backup + PIN lock for sensitive panels | 📋 Planned (next) |
 | Weather (SMHI) + sports results ticker (ESPN) | 📋 Planned |
 | Hvergelmer security checks, Gmail, Slack, morning briefing | 📋 Planned |

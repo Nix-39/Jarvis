@@ -35,6 +35,7 @@ class Router:
         "social_media",
         "content_creation",
         "reminders",
+        "calendar",
     )
 
     # Controlled whitelist mapping prompt variations/shorthands to canonical categories
@@ -45,6 +46,8 @@ class Router:
         "social_media_manager": "social_media",
         "content_creator": "content_creation",
         "reminder": "reminders",
+        "kalender": "calendar",
+        "calendars": "calendar",
     }
 
     DEFAULT_CATEGORY: str = "general"

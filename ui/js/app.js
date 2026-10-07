@@ -3,7 +3,7 @@ import { getToken, api, health, followEvents, openExternal } from './api.js';
 import { Tree, WELLS, S as TREE_S } from './tree.js';
 import { Myth, Sparks } from './runes.js';
 import { Bolts } from './effects.js';
-import { Calendar, today0, addDays, sameDay, dayLabel, timeSpan, MON } from './calendar.js';
+import { Calendar, today0, addDays, sameDay, dayLabel, timeSpan, MON, detailHTML, whenLabel, rangeShort } from './calendar.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -31,7 +31,11 @@ const tree = new Tree($('tree'));
 const myth = new Myth($('myth'));
 const sparks = new Sparks($('sparks'));
 const bolts = new Bolts($('guides'), $('bolts'));
-const calendar = new Calendar($('cal'));
+const calendar = new Calendar($('cal'), { onDelete: async (ev, { whole = true } = {}) => {
+  const path = ev.source === 'reminder' ? `/reminders/${ev.id}`
+    : `/calendar/events/${ev.id}${ev.occurrence && !whole ? `?occurrence=${ev.occurrence}` : ''}`;
+  try { await api(path, { method: 'DELETE' }); refreshCalendar(); } catch (e) { sys(`Kunde inte ta bort: ${e.message}`); }
+} });
 const panel = $('panel');
 let anchors = {}, geo = null;
 
@@ -43,7 +47,7 @@ async function boot() {
   if (!token) { $('lockText').textContent = 'Öppna Yggdrasil via skrivbordsikonen.'; return; }
   for (;;) {
     const h = await health();
-    if (h && h.ready) break;
+    if (h && h.ready) { state.uiVersion = h.ui; break; }
     $('lockText').textContent = h ? 'Yggdrasil vaknar (väntar på Ollama / synkar minnet)…' : 'Kärnan körs inte – startar den?';
     await new Promise((r) => setTimeout(r, 2000));
   }
@@ -53,15 +57,15 @@ async function boot() {
     state.photos = new Set(await api('/people/photos'));
   } catch (e) { $('lockText').textContent = `Kunde inte läsa inställningar: ${e.message}`; return; }
   state.names = Object.fromEntries(state.agents.map((a) => [a.id, a.name]));
-  state.names.reminder_agent = state.settings.planner_name || 'Planering';
+  state.names.reminder_agent = state.names.calendar_agent = state.settings.planner_name || 'Planering';
   applyNames();
   renderLamps(); renderAgents(); renderWells(); setupBackground(); setupSound(); setupSearch();
   calendar.setPeople(state.settings.people);
   layout();
   $('lock').classList.add('gone');
-  await Promise.allSettled([loadHistory(), refreshStatus(), refreshReminders(), refreshSystem(), loadBackground()]);
+  await Promise.allSettled([loadHistory(), refreshStatus(), refreshCalendar(), refreshSystem(), loadBackground()]);
   followEvents(onEvent, (up) => { if (!up) setStatus('Tappade kontakten med kärnan – försöker igen…'); else setStatus(null); });
-  setInterval(refreshStatus, 15000); setInterval(refreshSystem, 2000); setInterval(refreshReminders, 60000);
+  setInterval(refreshStatus, 15000); setInterval(refreshSystem, 2000); setInterval(refreshCalendar, 60000);
   setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('sv-SE'); }, 1000);
   requestAnimationFrame(loop);
 }
@@ -121,6 +125,9 @@ function lamp(id, mode, title) {
 }
 function flashLamp(id) { const el = document.querySelector(`.chip[data-lamp="${id}"]`); if (!el) return; el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1400); }
 async function refreshStatus() {
+  // The core was restarted with a new version of the interface: load it.
+  const h = await health();
+  if (h && h.ready && h.ui && state.uiVersion && h.ui !== state.uiVersion) { location.reload(); return; }
   try {
     const s = await api('/status'); state.status = s;
     lamp('ollama', s.ollama ? 'ok' : 'down', s.ollama ? s.model : 'Ollama svarar inte');
@@ -207,9 +214,9 @@ function renderPeople() {
   box.querySelectorAll('.person').forEach((el) => {
     const pid = el.dataset.person, ev = calendar.upcoming(pid, 7), list = el.querySelector('.plist');
     el.style.height = per + 'px';
-    el.classList.toggle('soon', ev.some((e) => { if (!sameDay(e.date, today0())) return false; const [h, m] = e.start.split(':').map(Number); const t = h * 60 + m; return t >= nowMin && t - nowMin <= 120; }));
+    el.classList.toggle('soon', ev.some((e) => { if (e.allDay || !sameDay(e.date, today0())) return false; const [h, m] = e.start.split(':').map(Number); const t = h * 60 + m; return t >= nowMin && t - nowMin <= 120; }));
     const show = ev.length > fit ? fit - 1 : fit;
-    list.innerHTML = ev.length ? ev.slice(0, show).map((e) => `<div class="pev${sameDay(e.date, today0()) ? ' today' : ''}"><small>${dayLabel(e.date)} ${timeSpan(e)}</small>${esc(e.title)}</div>`).join('') + (ev.length > show ? `<div class="pmore">+${ev.length - show} till</div>` : '')
+    list.innerHTML = ev.length ? ev.slice(0, show).map((e) => `<div class="pev${sameDay(e.date, today0()) ? ' today' : ''}"><small>${whenLabel(e)}</small>${esc(e.short || e.title)}</div>`).join('') + (ev.length > show ? `<div class="pmore">+${ev.length - show} till</div>` : '')
       : '<div class="pev none">Inget de närmaste 7 dagarna</div>';
     el.onclick = (e) => { e.stopPropagation(); personPanel(pid); };
     const node = el.querySelector('.pnode'), b = node.querySelector('b');
@@ -231,18 +238,33 @@ async function uploadPhoto(pid, file) {
 function personPanel(pid) {
   const p = state.settings.people.find((x) => x.id === pid), ev = calendar.upcoming(pid, 7);
   openPanel(`<h3><span style="color:${p.color}">${esc(p.name.toUpperCase())} · 7 DAGAR</span><button data-close>✕</button></h3>` +
-    (ev.length ? ev.map((e) => `<div class="chk" style="border-left:3px solid ${p.color}"><div>${esc(e.title)}<small>${dayLabel(e.date)} ${e.date.getDate()} ${MON[e.date.getMonth()]} · ${timeSpan(e)}${e.note ? ' · ' + esc(e.note) : ''}</small></div></div>`).join('')
+    (ev.length ? ev.map((e, i) => `<div class="chk pitem" data-i="${i}" style="border-left:3px solid ${p.color};cursor:pointer"><div>${esc(e.short || e.title)}<small>${e.allDay ? rangeShort(e) : `${dayLabel(e.date)} ${e.date.getDate()} ${MON[e.date.getMonth()]} · ${timeSpan(e)}`}${e.recurrenceLabel ? ' · ↻' : ''}${e.location ? ' · ' + esc(e.location) : ''}</small></div></div>`).join('')
       : '<div class="chk"><div>Inget planerat de närmaste 7 dagarna.</div></div>') +
     '<button class="cbtn openbtn" id="openCal">Öppna kalender</button>');
   $('openCal').onclick = (e) => { e.stopPropagation(); closePanel(); calendar.open(pid); };
+  panel.querySelectorAll('.pitem').forEach((el) => el.onclick = () => {
+    const item = ev[+el.dataset.i];
+    openPanel(`<h3><span style="color:${p.color}">${esc(p.name.toUpperCase())}</span><button data-close>✕</button></h3><div class="evd-inline" style="--pc:${p.color}">${detailHTML(item, p.name)}</div><button class="cbtn openbtn" id="backBtn">Tillbaka</button>`);
+    $('backBtn').onclick = (e) => { e.stopPropagation(); personPanel(pid); };
+  });
 }
-async function refreshReminders() {
-  try {
-    const list = await api('/reminders/upcoming?days=62');
-    calendar.setEvents(list.map((r) => { const d = new Date(r.due); const day = new Date(d); day.setHours(0, 0, 0, 0);
-      return { person: r.person, date: day, start: d.toTimeString().slice(0, 5), end: '', title: r.text, note: r.recurrence_label || '' }; }));
-    renderPeople();
-  } catch { /* keep previous */ }
+async function refreshCalendar() {
+  const day = (iso) => { const d = new Date(iso); d.setHours(0, 0, 0, 0); return d; };
+  const hhmm = (iso) => new Date(iso).toTimeString().slice(0, 5);
+  const from = addDays(today0(), -45), to = addDays(today0(), 120);
+  const [rem, cal] = await Promise.allSettled([
+    api('/reminders/upcoming?days=120'),
+    api(`/calendar/events?start=${encodeURIComponent(from.toISOString())}&end=${encodeURIComponent(to.toISOString())}`),
+  ]);
+  const events = [];
+  if (rem.status === 'fulfilled') for (const r of rem.value) events.push({ id: r.id, key: `r${r.id}`, source: 'reminder', kind: 'reminder', person: r.person, date: day(r.due), endDate: addDays(day(r.due), 1), allDay: false, start: hhmm(r.due), end: '', title: r.text, short: `⏰ ${r.text}`, note: r.recurrence_label || '', location: '' });
+  if (cal.status === 'fulfilled') for (const e of cal.value) {
+    const d0 = day(e.start_at), allDay = !!e.all_day;
+    events.push({ id: e.id, key: e.key, source: 'calendar', kind: e.kind, person: e.person, date: d0, endDate: allDay && e.end_at ? day(e.end_at) : addDays(d0, 1), allDay,
+      start: hhmm(e.start_at), end: e.end_at && !allDay ? hhmm(e.end_at) : '', title: e.title, short: e.short, icon: e.icon, location: e.location, details: e.details,
+      note: (e.details || {}).note || '', occurrence: e.occurrence || '', recurrenceLabel: e.recurrence_label || '' });
+  }
+  if (rem.status === 'fulfilled' || cal.status === 'fulfilled') { calendar.setEvents(events); renderPeople(); }
 }
 
 /* =====================================================================
@@ -268,6 +290,7 @@ function md(text) {
   return html;
 }
 function msg(who, text, meta, time, opts = {}) {
+  if (who === 'jarvis' && meta && meta !== oden()) meta = `${oden()} · ${meta}`;   // Oden answers, the agent did the work
   const m = document.createElement('div'); m.className = `msg ${who}${opts.err ? ' err' : ''}`;
   m.innerHTML = `<small><span>${esc(meta)}</span><span>${time || now()}</span></small><div class="md">${md(text)}</div>`;
   add(m, opts.prepend); return m;
@@ -336,7 +359,7 @@ function onEvent(ev) {
       const label = state.names[d.agent] || d.agent;
       step(d.reason === 'pending_reply' ? `${oden()}: svar på väntande fråga → ${label}` : `${oden()}: '${d.category}' → ${label}`);
       busy(d.agent, `Arbetar · <b>${esc(label)}</b>`);
-      if (d.agent === 'reminder_agent') fire('root', 'urd'); else { fire('crown', d.agent); lightAgent(d.agent, true); }
+      if (d.agent === 'reminder_agent' || d.agent === 'calendar_agent') fire('root', 'urd'); else { fire('crown', d.agent); lightAgent(d.agent, true); }
       break; }
     case 'memory.lookup':
       step(ev.message); fire('root', 'mimer', 2); setTimeout(() => fire('mimer', 'root', 2), 650); break;
@@ -346,14 +369,15 @@ function onEvent(ev) {
       step(ev.message); agentNode(state.busyAgent)?.classList.remove('searching'); break;
     case 'query.completed': {
       const id = d.agent; step(d.success === false ? `${state.names[id] || id} misslyckades` : `${state.names[id] || id} svarade på ${d.seconds} s`);
-      if (id && id !== 'reminder_agent') { fire(id, 'crown'); setTimeout(() => lightAgent(id, false), 500); }
+      if (id && id !== 'reminder_agent' && id !== 'calendar_agent') { fire(id, 'crown'); setTimeout(() => lightAgent(id, false), 500); }
       agentNode(id)?.classList.remove('searching');
       const st = state.stats[id] = state.stats[id] || { n: 0, t: [], last: '' }; st.n++; st.t.push(d.seconds || 0); st.last = d.text || st.last;
       if (d.channel && d.channel !== 'ui' && d.reply) { msg('jarvis', d.reply, state.names[id] || id); play('reply'); }
       if (d.channel === 'telegram') setTimeout(() => { fire('crown', 'telegram'); flashLamp('telegram'); }, 300);
       busy(null); break; }
-    case 'reminder.created': sys(`⏰ ${ev.message}`); fire('root', 'urd'); refreshReminders(); break;
-    case 'reminder.delivered': sys(`⏰ ${ev.message}`); tree.pulseWell('urd'); toast('⏰ PÅMINNELSE', ev.message.replace(/^Påminnelse skickad: /, '')); play('reminder'); refreshReminders(); break;
+    case 'reminder.created': case 'reminder.cancelled': sys(`⏰ ${ev.message}`); fire('root', 'urd'); refreshCalendar(); break;
+    case 'calendar.created': case 'calendar.updated': case 'calendar.cancelled': sys(`📅 ${ev.message}`); fire('root', 'urd'); refreshCalendar(); break;
+    case 'reminder.delivered': sys(`⏰ ${ev.message}`); tree.pulseWell('urd'); toast('⏰ PÅMINNELSE', ev.message.replace(/^Påminnelse skickad: /, '')); play('reminder'); refreshCalendar(); break;
     case 'memory.synced': sys('Långtidsminnet uppdaterat'); tree.pulseWell('mimer'); break;
     case 'memory.document_added': sys(`📄 ${ev.message}`); tree.pulseWell('mimer'); break;
     case 'security.rejected': { state.securityRejected++; const b = $('secBadge'); b.hidden = false; b.textContent = state.securityRejected; sys(`🛡️ ${ev.message}`); tree.pulseWell('hvergelmer'); break; }

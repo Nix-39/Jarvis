@@ -62,6 +62,7 @@ class JarvisCore:
     ) -> None:
         from core.scheduler import Scheduler
         from services.notification_service import NotificationService
+        from services.calendar_service import CalendarService
         from services.reminder_service import ReminderService
         from services.system_monitor import SystemMonitor
         from services.ui_settings import UiSettingsService
@@ -71,6 +72,7 @@ class JarvisCore:
         self.notifications = notification_service or NotificationService()
         self.scheduler = Scheduler(self.reminders, self.notifications)
         self.ui_settings = UiSettingsService()
+        self.calendar = CalendarService()
         self.system_monitor = SystemMonitor()
         self.orchestrator: Any = None
         self.telegram: Any = None
@@ -98,7 +100,11 @@ class JarvisCore:
             from core.orchestrator import JarvisOrchestrator
 
             event_bus.publish("core.starting", "core", "Laddar agenter och synkar långtidsminnet...")
-            orchestrator = JarvisOrchestrator(reminder_service=self.reminders)
+            orchestrator = JarvisOrchestrator(
+                reminder_service=self.reminders,
+                calendar_service=self.calendar,
+                people_provider=self.people,
+            )
         self.orchestrator = orchestrator
 
         if Config.TELEGRAM_BOT_TOKEN:
@@ -120,6 +126,10 @@ class JarvisCore:
         event_bus.publish("core.online", "core", "Jarvis är online")
         if self.telegram and not self.telegram.setup_mode and Config.TELEGRAM_STARTUP_MESSAGE:
             self.telegram.send_text("🟢 Jarvis är online")
+
+    def people(self) -> list[dict[str, str]]:
+        """Family members (id, name, full name) for the calendar agent."""
+        return [{"id": p.id, "name": p.name, "full_name": p.full_name} for p in self.ui_settings.get().people]
 
     def stop(self) -> None:
         self._stop.set()

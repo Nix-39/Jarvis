@@ -10,7 +10,7 @@ User Request -> Intent Classification (Router) -> Category Mapping -> Execution 
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Final, Optional
+from typing import Callable, Dict, Final, Optional
 
 from core.events import event_bus
 from core.logger import get_logger
@@ -19,11 +19,13 @@ from core.router import Router
 from services.memory_service import MemoryService
 from services.ollama_service import OllamaService
 from services.prompt_loader import PromptLoader
+from services.calendar_service import CalendarService
 from services.reminder_service import ReminderService
 from services.vector_service import VectorService
 from services.web_search_service import WebSearchService
 
 from agents.business_agent import BusinessAgent
+from agents.calendar_agent import CalendarAgent
 from agents.career_agent import CareerAgent
 from agents.contentcreator_agent import ContentCreatorAgent
 from agents.education_agent import EducationAgent
@@ -65,6 +67,7 @@ class JarvisOrchestrator:
         "social_media": "socialmediamanager_agent",
         "content_creation": "contentcreator_agent",
         "reminders": "reminder_agent",
+        "calendar": "calendar_agent",
     }
 
     DEFAULT_AGENT_ID: str = "general_agent"
@@ -77,6 +80,8 @@ class JarvisOrchestrator:
         vector_service: Optional[VectorService] = None,
         web_service: Optional[WebSearchService] = None,
         reminder_service: Optional[ReminderService] = None,
+        calendar_service: Optional[CalendarService] = None,
+        people_provider: Optional[Callable[[], list]] = None,
     ) -> None:
         """
         Initialize the Orchestrator with infrastructure services, router, and registered agents.
@@ -99,6 +104,7 @@ class JarvisOrchestrator:
         )
         self.web_service = web_service or WebSearchService(ollama_service=self.ollama_service)
         self.reminder_service = reminder_service or ReminderService()
+        self.calendar_service = calendar_service or CalendarService()
         if self.web_service.enabled and not self.web_service.is_available():
             logger.warning(
                 "SearXNG is not reachable at %s - answers will lack live web information. "
@@ -148,6 +154,13 @@ class JarvisOrchestrator:
                 memory_service=self.memory_service,
                 reminder_service=self.reminder_service,
                 ollama_service=self.ollama_service,
+            ),
+            "calendar_agent": CalendarAgent(
+                memory_service=self.memory_service,
+                calendar_service=self.calendar_service,
+                ollama_service=self.ollama_service,
+                people_provider=people_provider,
+                reminder_service=self.reminder_service,
             ),
             "contentcreator_agent": ContentCreatorAgent(
                 memory_service=self.memory_service,

@@ -149,12 +149,14 @@ class ReminderService:
         return [self._row_to_reminder(row) for row in rows]
 
     def cancel(self, reminder_id: int) -> bool:
+        reminder = self.get(reminder_id)
         cursor = self._conn().execute(
             "UPDATE reminders SET status = 'cancelled' WHERE id = ? AND status = 'active'",
             (reminder_id,),
         )
         if cursor.rowcount:
             logger.info("Reminder %s cancelled.", reminder_id)
+            event_bus.publish("reminder.cancelled", "reminders", f"Borttagen påminnelse: {reminder.text if reminder else reminder_id}", reminder_id=reminder_id)
         return bool(cursor.rowcount)
 
     def due(self, now: Optional[datetime] = None) -> list[Reminder]:

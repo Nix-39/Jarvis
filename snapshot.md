@@ -1,5 +1,5 @@
 # PROJECT SNAPSHOT
-**Last updated:** 2026-10-06 (desktop interface Yggdrasil – step 1)
+**Last updated:** 2026-10-07 (family calendar Urd)
 
 ---
 
@@ -207,10 +207,10 @@ External Systems
 
 Jarvis strictly enforces a 4-tier naming hierarchy to maintain zero ambiguity across components:
 
-1. **Domain Category (Router Output):** `business`, `career`, `web_development`, `education`, `general`, `social_media`, `content_creation`, `reminders`
-2. **Internal Agent ID (Orchestrator/Planner Key):** `business_agent`, `career_agent`, `webdeveloper_agent`, `education_agent`, `general_agent`, `socialmediamanager_agent`, `contentcreator_agent`, `reminder_agent`
-3. **Python Module (File Path):** `business_agent.py`, `career_agent.py`, `webdeveloper_agent.py`, `education_agent.py`, `general_agent.py`, `socialmediamanager_agent.py`, `contentcreator_agent.py`, `reminder_agent.py`
-4. **Python Class:** `BusinessAgent`, `CareerAgent`, `WebDeveloperAgent`, `EducationAgent`, `GeneralAgent`, `SocialMediaManagerAgent`, `ContentCreatorAgent`, `ReminderAgent`
+1. **Domain Category (Router Output):** `business`, `career`, `web_development`, `education`, `general`, `social_media`, `content_creation`, `reminders`, `calendar`
+2. **Internal Agent ID (Orchestrator/Planner Key):** `business_agent`, `career_agent`, `webdeveloper_agent`, `education_agent`, `general_agent`, `socialmediamanager_agent`, `contentcreator_agent`, `reminder_agent`, `calendar_agent`
+3. **Python Module (File Path):** `business_agent.py`, `career_agent.py`, `webdeveloper_agent.py`, `education_agent.py`, `general_agent.py`, `socialmediamanager_agent.py`, `contentcreator_agent.py`, `reminder_agent.py`, `calendar_agent.py`
+4. **Python Class:** `BusinessAgent`, `CareerAgent`, `WebDeveloperAgent`, `EducationAgent`, `GeneralAgent`, `SocialMediaManagerAgent`, `ContentCreatorAgent`, `ReminderAgent`, `CalendarAgent`
 
 ---
 
@@ -246,13 +246,15 @@ To prevent API hallucination, all components must strictly interface with these 
 * **`services.reminder_service.ReminderService`**
   `add(text, due, recurrence="none", category="") -> Reminder`, `get(id)`, `list_upcoming(limit=25)`
   `cancel(id) -> bool`, `due(now=None) -> list[Reminder]`, `mark_fired(reminder, now=None) -> Optional[datetime]`, `categories() -> list[str]`
+* **`services.calendar_service.CalendarService`**
+  `add(person, kind, title, start, end=None, location="", details=None) -> CalendarEvent`, `update(id, **fields)`, `cancel(id) -> bool`, `get(id)`, `between(start, end, person=None, kind=None)`, `upcoming(days=14, person=None)`; `CalendarEvent.short`, `.icon`, `.to_dict()`
 * **`services.notification_service.NotificationService`**
   `notify(title: str, message: str) -> bool` (channels: WindowsToastChannel, TelegramChannel)
 * **`core.scheduler.Scheduler`**
   `check_once(now=None) -> int`, `run_forever(stop: Optional[threading.Event] = None)`
 * **`core.events.event_bus`** (singleton `EventBus`)
   `publish(type, source, message, **data) -> Optional[Event]` (never raises), `subscribe() -> queue.Queue`, `unsubscribe(q)`, `recent(after_id=0, limit=200) -> list[Event]`
-  Event types: `core.starting|online|offline|failed`, `query.received|queued|completed`, `agent.selected`, `memory.lookup|synced`, `websearch.query|results|failed`, `reminder.created|delivered`, `security.rejected`
+  Event types: `core.starting|online|offline|failed`, `query.received|queued|completed`, `agent.selected`, `memory.lookup|synced`, `websearch.query|results|failed`, `reminder.created|delivered`, `calendar.created|updated|cancelled`, `security.rejected`
 * **`core.single_instance`**
   `acquire_lock() -> Optional[socket]`, `lock_is_held() -> bool`
 * **`core.jarvis_core.JarvisCore`**
@@ -506,8 +508,16 @@ Status: Implemented, tested with mocked Telegram API; pending live verification.
 Locations: `ui/` (index.html, app.css, js/app.js, api.js, tree.js, runes.js, effects.js, calendar.js, assets/yggdrasil.ico|png), `clients/desktop.py`, `services/ui_settings.py`, `services/system_monitor.py`, `scripts/install_desktop.ps1`. Full design: project doc `claude/yggdrasil-ui-design.md`.
 System display name Yggdrasil, orchestrator Oden (names in `data/ui/settings.json`). Core serves static UI at `/app` (public, no data) + token-protected endpoints: `/agents`, `/settings` (GET/PATCH, pydantic-validated), `/history`, `/system` (nvidia-smi), `/memory/stats`, `/reminders/upcoming` (person mapped by name in category/text), `/documents/folders`, `PUT /documents` (raw body, txt/md/pdf/docx ≤25 MB, safe folder/filename, triggers vector sync), `/assets/background` (GET/PUT/DELETE, magic-byte check), `/people/photos`, `/people/{id}/photo`. Security headers incl. strict CSP. Events enriched: `query.received` has `text`, `query.completed` has `channel`, `text`, `reply` (Telegram conversations show live in the log).
 Desktop app: pywebview window (WebView2), token only via JS bridge (`get_token`), `open_url` allowlist, close = hide, pystray tray icon, global hotkey via RegisterHotKey (no keyboard hook), single instance on 127.0.0.1:47832 (second launch sends SHOW), `--hidden` at login (task "Yggdrasil Desktop", 40 s delay), desktop shortcut with icon.
-UI: tree variant 2 with cached branches, rune ring, blaster bolts crown→agent / root→wells, wells Mimer/Urd/Hvergelmer, family nodes (rolling 7 days from reminders), Urd week/month calendar with ISO weeks + person filters, log with history paging + Telegram messages + steps toggle + search, chat via `/chat` (channel `ui`), file drop → Oden asks folder, background image + 7 sliders, sound levels per category + master mute (persisted). Weather, sports ticker, mail, Slack and Hvergelmer checks are placeholders/hidden until their steps.
-Status: Implemented, tested in container with fake Ollama and a fake desktop bridge (endpoints, validation, live events, UI rendering); desktop window/tray/hotkey pending live verification on Windows.
+UI: tree variant 2 with cached branches, rune ring, blaster bolts crown→agent / root→wells, wells Mimer/Urd/Hvergelmer, family nodes (rolling 7 days from reminders + calendar), Urd calendar (see Family Calendar below), log with history paging + Telegram messages + steps toggle + search, chat via `/chat` (channel `ui`), file drop → Oden asks folder, background image + 7 sliders, sound levels per category + master mute (persisted). Weather, sports ticker, mail, Slack and Hvergelmer checks are placeholders/hidden until their steps.
+Status: Verified live on Windows by the user (window, tray, hotkey, UI).
+
+## ✅ Family Calendar "Urd"
+Locations: `services/calendar_service.py`, `agents/calendar_agent.py`, `prompts/calendar_agent.txt`, `ui/js/calendar.js`; router category `calendar` (prompts/router.txt section 8; REMINDERS narrowed to "påminn mig").
+CalendarService: SQLite table `calendar_events` (person, kind event|work|match, title, start_at/end_at UTC, location, details JSON, status, source 'local', external_id reserved for Google sync, all_day, recurrence JSON, skip_dates JSON; columns migrated in place); add/update/cancel/skip/get/between/upcoming/series. All-day bookings span whole days (local midnight → midnight after last day, ≤62 days) and render as banners. Recurrence `{freq weekly|biweekly|monthly, parity ''|even|odd (ISO week), until}` is expanded on read into occurrences (`key` = `<id>@<first day>`); `skip(id, day)` removes one occurrence; extra/moved days are new bookings; events `calendar.created|updated|cancelled`. Match details validated: sport fotboll|innebandy (icons ⚽/🏑), division, home, away, role, gather HH:MM, officials [{role,name}] ≤8. Formats: title `H4 AD Floda - Gunnilse`, short `⚽ H4 (AD) Floda - Gunnilse`.
+CalendarAgent (`calendar_agent`, pending key `calendar_agent.pending`): JSON proposal → card → "ja"/"nej"/correction; create (incl. all_day/end_date/repeat), list, cancel (whole booking, series `5`, one occurrence `5@YYYY-MM-DD`, reminder `r4`). Follow-up questions are stored as a `clarify` pending so the answer is routed back. The prompt gets a 42-day date lookup table (date, weekday, ISO week) and Python does all date/parity maths; a cup is one all-day event, not a match. Own crew entry from people[0].full_name (fallback name); crew sorted HD, AD1, AD2. Night shifts roll over to next day; default match length fotboll 120 / innebandy 90 min. Single work-shift question answered directly ("Natta jobbar 09:00–19:15 fredag 9 oktober."). Also sees upcoming reminders (ids `r<id>` in the prompt): lists them and can remove them, since they show in the same family calendar.
+API: `GET /calendar/events?start&end` (ISO, ≤400 days), `DELETE /calendar/events/{id}`, `DELETE /reminders/{id}` (ReminderService.cancel publishes `reminder.cancelled`). `/health` returns `ui` (fingerprint of ui/ files); static UI served with `Cache-Control: no-cache`, and an open window reloads itself when the fingerprint changes after a core restart. Chat labels read "Oden · <agent>". `people[].full_name` in `data/ui/settings.json`.
+UI: Urd day view (one column per family member, all-day bookings as a strip at the top; "Idag" opens it), week view with stacked banner lanes above the days, month view with ISO weeks and continuous bars; series detail card has "Ta bort bara denna gång" / "Ta bort hela serien"; week header → day, week number → week; every booking clickable → detail card (match full format with crew) with delete (double-click confirm); family column merges reminders + calendar events, items clickable → detail.
+Status: Implemented, tested in container (service + agent with fake LLM, end-to-end via API with fake Ollama, Playwright UI day/week/detail); pending live verification.
 
 ## ✅ Terminal Client & Launcher
 `jarvis.bat` → `clients/terminal.py`: thin client of Jarvis Core (`Du >`, `/status`, `exit`; live dimmed "› ..." event lines while waiting, `--quiet` hides them). Waits while the core starts; explains how to start it if it is not running. `python -m core.orchestrator` remains as a standalone debug chat and refuses to run while the core holds the lock (two ChromaDB writers could corrupt the index).
@@ -566,7 +576,8 @@ Status: All 7 agents verified.
 | Terminal client + jarvis.bat | 🔧 Pending live test |
 | Jarvis Core + local API + EventBus | 🔧 Pending live test |
 | Telegram two-way chat | ✅ |
-| Desktop interface Yggdrasil (window, tray, hotkey, live brain map) | 🔧 Pending live test |
+| Desktop interface Yggdrasil (window, tray, hotkey, live brain map) | ✅ |
+| Family calendar Urd (CalendarService + CalendarAgent + day/week/month UI) | 🔧 Pending live test |
 | Autostart chain (Ollama, Docker/SearXNG, Jarvis task) | ✅ (re-check after install_core.ps1) |
 | SearXNG (Docker, hardened) | ✅ |
 | WebSearchService + date awareness | ✅ |
@@ -609,7 +620,7 @@ web_search_service.py (verified - live web info via self-hosted SearXNG)
 reminder_service.py (implemented - reminders, recurrence)
 notification_service.py (implemented - Windows toast + Telegram channels)
 telegram_service.py (implemented - two-way Telegram chat = mobile access)
-calendar_service.py (planned - Google Calendar, family calendars per category)
+calendar_service.py (implemented - local family calendar Urd; Google Calendar sync planned)
 core/api.py (implemented - local API; later exposed to the own mobile app over Tailscale)
 slack_service.py (planned - Slack integration for mobile connection)
 social_media_analytics_service.py (planned - Competitor analytics/data export fetcher)
@@ -622,9 +633,9 @@ text_to_speech_service.py (planned)
 
 # Roadmap (agreed order)
 
-1. **Visual desktop interface – step 1 DONE (pending live test).** Next: **step 2** encrypted nightly backup of `data/` to another internal disk + PIN lock for sensitive panels; **step 3** weather (SMHI open data) + sports ticker (ESPN public scoreboard endpoints, swappable provider, leagues editable via Oden). Original scope: web UI served by Jarvis Core on 127.0.0.1, shown in its own app window; desktop icon; tray icon (Jarvis keeps running in the background when the window closes); global hotkey (e.g. Ctrl+Alt+J) to bring it up; chat window for typing (quiet hours when the family sleeps); sound on/off toggle; live "second brain" map of the Orchestrator and agents driven by `/events/stream` (which agent works, web searches, memory lookups, reminders).
+1. **Visual desktop interface – step 1 DONE (verified).** **Urd local calendar DONE (pending live test).** Next: **step 2** encrypted nightly backup of `data/` to another internal disk + PIN lock for sensitive panels; **step 3** weather (SMHI open data) + sports ticker (ESPN public scoreboard endpoints, swappable provider, leagues editable via Oden). Original scope: web UI served by Jarvis Core on 127.0.0.1, shown in its own app window; desktop icon; tray icon (Jarvis keeps running in the background when the window closes); global hotkey (e.g. Ctrl+Alt+J) to bring it up; chat window for typing (quiet hours when the family sleeps); sound on/off toggle; live "second brain" map of the Orchestrator and agents driven by `/events/stream` (which agent works, web searches, memory lookups, reminders).
 2. **Voice:** local speech-to-text and text-to-speech, wake word "Hej Jarvis" (both hotkey and wake word wake Jarvis); respects the sound toggle.
-3. **CalendarService (Google Calendar):** start with the current Google account, move to a new private account later. One calendar per category (each child, family, Robin's work, wife's work, VerkstadsFlow), shared with the wife (iPhone via Google account in iOS Calendar) and shown on an Android tablet as family display. Jarvis picks the calendar from the category ("lägg in BVC-tid för ..."), always with confirmation.
+3. **Google Calendar sync on top of the local Urd calendar:** start with the current Google account, move to a new private account later. One calendar per category (each child, family, Robin's work, wife's work, VerkstadsFlow), shared with the wife (iPhone via Google account in iOS Calendar) and shown on an Android tablet as family display. Jarvis picks the calendar from the category ("lägg in BVC-tid för ..."), always with confirmation.
 4. Later: Cal.com booking for VerkstadsFlow (on top of Google Calendar); own mobile app (Jarvis Core API over Tailscale, PWA or .NET MAUI) as another chat/notification channel; social media analytics.
 5. **Computer hardening (after the setup is complete):** review open ports (`netstat -abno`) and close what is not needed; stricter Windows Firewall rules (block inbound by default, verify Docker/SearXNG and Jarvis stay on 127.0.0.1); review autostart programs; consider BitLocker (with the recovery key stored safely). Constraint: family members use the computer with automatic login and no separate accounts, so measures must not add logins.
 

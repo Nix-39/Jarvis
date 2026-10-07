@@ -16,7 +16,7 @@ Security:
     - No interactive docs / OpenAPI schema are served.
 
 Endpoints:
-    GET  /health          {"status": "ok", "ready": bool}       (no token)
+    GET  /health          {"status": "ok", "ready": bool, "ui": version}   (no token)
     GET  /status          uptime, Ollama, SearXNG, Telegram, reminders
     POST /chat            {"message": "..."} -> {"reply", "agent", "seconds", "success"}
     GET  /events/recent   ?after_id=0&limit=200 -> recent events
@@ -29,11 +29,13 @@ everything personal goes through the token-protected endpoints below):
     GET|PATCH /settings                   display names, people, background, sound
     GET  /documents/folders, PUT /documents?folder=&name=   (raw file body)
     GET|PUT|DELETE /assets/background, GET|PUT /people/{id}/photo   (raw image body)
+    GET  /calendar/events?start=&end=, DELETE /calendar/events/{id}[?occurrence=YYYY-MM-DD], DELETE /reminders/{id}
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import json
 import queue
@@ -43,7 +45,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import re
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
@@ -125,9 +127,12 @@ def create_app(
 
     authorized = [Depends(require_token)]
 
+    ui_version = _ui_version()
+
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {"status": "ok", "ready": core.ready}
+        # "ui" changes when the interface files change, so an open window reloads itself.
+        return {"status": "ok", "ready": core.ready, "ui": ui_version}
 
     @app.get("/status", dependencies=authorized)
     def status() -> dict[str, Any]:
@@ -200,11 +205,31 @@ def create_app(
 # Desktop interface
 # ----------------------------------------------------------------------
 
+class _RevalidatingStaticFiles(StaticFiles):
+    """Static UI files that the window always revalidates, so updates show up after a reload."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+def _ui_version() -> str:
+    """Short fingerprint of the interface files (names, sizes, modification times)."""
+    digest = hashlib.sha256()
+    if Config.UI_DIR.is_dir():
+        for path in sorted(Config.UI_DIR.rglob("*")):
+            if path.is_file():
+                stat = path.stat()
+                digest.update(f"{path.relative_to(Config.UI_DIR)}|{stat.st_size}|{stat.st_mtime_ns}".encode())
+    return digest.hexdigest()[:12]
+
+
 def _add_desktop_routes(app: FastAPI, core: "JarvisCore", authorized: list) -> None:
     settings_service = core.ui_settings
 
     if Config.UI_DIR.is_dir():
-        app.mount("/app", StaticFiles(directory=Config.UI_DIR, html=True), name="ui")
+        app.mount("/app", _RevalidatingStaticFiles(directory=Config.UI_DIR, html=True), name="ui")
 
     @app.get("/", include_in_schema=False)
     def root() -> RedirectResponse:
@@ -261,6 +286,37 @@ def _add_desktop_routes(app: FastAPI, core: "JarvisCore", authorized: list) -> N
                         "recurrence": r.recurrence, "recurrence_label": "" if r.recurrence == "none" else RECURRENCE_LABELS[r.recurrence],
                         "person": settings_service.person_for(r.category, r.text)})
         return out
+
+    @app.get("/calendar/events", dependencies=authorized)
+    def calendar_events(start: str = Query(..., max_length=40), end: str = Query(..., max_length=40)) -> list[dict[str, Any]]:
+        try:
+            lo, hi = datetime.fromisoformat(start), datetime.fromisoformat(end)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Ogiltigt datum.") from exc
+        if hi - lo > timedelta(days=400):
+            raise HTTPException(status_code=400, detail="För stort intervall.")
+        return [e.to_dict() for e in core.calendar.between(lo, hi)]
+
+    @app.delete("/reminders/{reminder_id}", dependencies=authorized)
+    def delete_reminder(reminder_id: int) -> dict[str, bool]:
+        if not core.reminders.cancel(reminder_id):
+            raise HTTPException(status_code=404, detail="Påminnelsen finns inte.")
+        return {"ok": True}
+
+    @app.delete("/calendar/events/{event_id}", dependencies=authorized)
+    def delete_calendar_event(event_id: int, occurrence: str = Query("", max_length=10)) -> Response:
+        """Remove a booking (a whole series), or with ?occurrence=YYYY-MM-DD one occurrence of a series."""
+        if occurrence:
+            try:
+                day = date.fromisoformat(occurrence)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Ogiltigt datum.") from exc
+            removed = core.calendar.skip(event_id, day)
+        else:
+            removed = core.calendar.cancel(event_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Bokningen finns inte.")
+        return Response(status_code=204)
 
     @app.get("/documents/folders", dependencies=authorized)
     def document_folders() -> list[str]:

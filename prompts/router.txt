@@ -31,10 +31,14 @@ Categories and Routing Rules:
 - Rule: Choose this for long-form copywriting, content production, and written marketing materials.
 
 7. REMINDERS
-- Topics: Creating, listing, changing or cancelling reminders and scheduled to-dos: "påminn mig...", "kom ihåg att...", "lägg in ... kl ...", booking an appointment at a time (doctor, BVC, meeting, calling a customer at a specific time), "vilka påminnelser har jag?", "ta bort påminnelsen...".
-- Rule: Choose this whenever the user wants Jarvis to remember something or notify them at a specific time, or to manage existing reminders.
+- Topics: Creating, listing, changing or cancelling reminders and to-dos the user wants to be NOTIFIED about: "påminn mig...", "kom ihåg att...", "ring X kl 14", "vilka påminnelser har jag?", "ta bort påminnelsen...".
+- Rule: Choose this when the user wants to be reminded or notified at a specific time.
 
-8. GENERAL
+8. CALENDAR
+- Topics: The family calendar: putting bookings in ("lägg in", "boka in", "skriv in i kalendern"), appointments (BVC, tandläkare, möte, kalas, simskola), work shifts ("Natta jobbar 9-19 på fredag"), days spanning several days (trips, courses, cups, "Julian är hos oss torsdag-söndag varannan vecka"), referee assignments ("jag ska döma", "match", "HD", "AD", "H4", "division"), and questions about what is planned ("vad har vi på lördag?", "hur jobbar Natta på fredag?", "när dömer jag nästa gång?"), or removing bookings.
+- Rule: Choose this for anything that belongs in or asks about the calendar, unless the user explicitly asks to be reminded.
+
+9. GENERAL
 - Topics: Everyday productivity, shopping lists, general knowledge, brainstorming, creative writing, fallback questions that do not fit any of the specialized categories above.
 - Rule: Choose this only when no specialized category is a better fit.
 
@@ -43,10 +47,11 @@ Decision Boundaries (To prevent misclassification):
 - If the user asks for a LONG-FORM blog post or script about cybersecurity, choose CONTENT_CREATION, not EDUCATION.
 - If the user asks to write a CAPTION or post for Instagram/Facebook about a blog post, choose SOCIAL_MEDIA, not CONTENT_CREATION.
 - If the user asks about the BUSINESS STRATEGY of selling websites, choose BUSINESS, not WEB_DEVELOPMENT.
-- If the user asks to be REMINDED of something or to put something in at a specific time (even a business task like calling a customer), choose REMINDERS.
+- If the user asks to be REMINDED of something ("påminn mig", "kom ihåg"), choose REMINDERS - even for a business task like calling a customer.
+- If the user wants something put IN THE CALENDAR (an appointment, a shift, a match to referee) or asks what is planned, choose CALENDAR.
 
 Output Format (CRITICAL):
 You must output exactly ONE word from this list:
-[BUSINESS, CAREER, WEB_DEVELOPMENT, EDUCATION, SOCIAL_MEDIA, CONTENT_CREATION, REMINDERS, GENERAL]
+[BUSINESS, CAREER, WEB_DEVELOPMENT, EDUCATION, SOCIAL_MEDIA, CONTENT_CREATION, REMINDERS, CALENDAR, GENERAL]
 
 Do NOT include any introduction, explanations, punctuation, markdown formatting, or extra spaces. Output only the raw uppercase token.

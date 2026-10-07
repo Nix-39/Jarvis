@@ -49,6 +49,7 @@ class Person(BaseModel):
     id: str = Field(pattern=ID_PATTERN)
     name: str = Field(min_length=1, max_length=30)
     color: str = Field(pattern=COLOR_PATTERN)
+    full_name: str = Field("", max_length=60)   # used e.g. in referee crews ("AD1: Förnamn Efternamn")
 
 
 class Background(BaseModel):
