@@ -104,6 +104,7 @@ class JarvisCore:
         from services.backup_service import BackupService
         from services.calendar_service import CalendarService
         from services.reminder_service import ReminderService
+        from services.briefing_service import BriefingService
         from services.news_service import NewsService
         from services.sports_service import SportsService
         from services.weather_service import WeatherService
@@ -122,6 +123,11 @@ class JarvisCore:
         self.sports = SportsService(lambda: self.ui_settings.get().sports.leagues,
                                     favorites_provider=self.sports_favorites, paused_provider=self.sports_paused)
         self.news = NewsService(self.sports_favorites, paused_provider=self.sports_paused)
+        self.briefing = BriefingService(
+            weather=self.weather_snapshot, calendar=self.calendar, reminders=self.reminders,
+            people=self.people, person_for=lambda category, text: self.ui_settings.person_for(category, text),
+            sports=self.sports, news=self.news, problems=self.problems,
+        )
         self.weather = WeatherService(lambda: self.ui_settings.get().weather.model_dump())
         self.speech = SpeechService(lambda: self.ui_settings.get().model_dump(), on_command=self._voice_command) \
             if Config.VOICE_ENABLED else None
@@ -164,6 +170,7 @@ class JarvisCore:
                 calendar_service=self.calendar,
                 people_provider=self.people,
                 sports_control=SportsControl(self),
+                briefing_service=self.briefing,
             )
         self.orchestrator = orchestrator
 
@@ -230,6 +237,28 @@ class JarvisCore:
         self.sports.wake()
         return f"{'imorgon' if until.date() > now.date() else 'idag'} {until:%H:%M}"
 
+    def weather_snapshot(self) -> dict[str, Any]:
+        return self.weather.snapshot()
+
+    def problems(self) -> list[str]:
+        """Things the user should know about (for the briefing) - empty when all is well."""
+        out: list[str] = []
+        b = self.backup.status()
+        if b.get("configured"):
+            last = b.get("last_backup")
+            if b.get("problem") or b.get("last_error"):
+                out.append(f"Backupen fungerar inte: {b.get('problem') or b.get('last_error')}")
+            elif not last or _age(last) > timedelta(hours=36):
+                out.append("Ingen backup har gjorts det senaste dygnet.")
+        if not ollama_is_up(Config.OLLAMA_HOST):
+            out.append("Ollama svarar inte – Nexus kan inte tänka just nu.")
+        web = getattr(self.orchestrator, "web_service", None)
+        if web is not None and web.enabled and not web.is_available():
+            out.append("Webbsöket (SearXNG) svarar inte – starta Docker.")
+        if self.speech is not None and self.speech.error:
+            out.append(f"Rösten: {self.speech.error}")
+        return out
+
     def people(self) -> list[dict[str, str]]:
         """Family members (id, name, full name) for the calendar agent."""
         return [{"id": p.id, "name": p.name, "full_name": p.full_name} for p in self.ui_settings.get().people]
@@ -262,7 +291,10 @@ class JarvisCore:
             self._query_lock.release()
         # Nexus answers out loud at the computer (not for Telegram - you are away then).
         if self.speech is not None and channel in ("voice", "ui", "terminal") and getattr(result, "final_response", ""):
-            self.speech.say(result.final_response, "reply_voice" if channel == "voice" else "reply")
+            spoken = result.final_response
+            if getattr(result, "agent_used", "") == "briefing_agent" and self.briefing.last is not None:
+                spoken = self.briefing.last.spoken          # the short version, not every line and link
+            self.speech.say(spoken, "reply_voice" if channel == "voice" else "reply")
         return result
 
     def _voice_command(self, text: str) -> None:
@@ -355,6 +387,11 @@ def backup_text(b: dict[str, Any]) -> str:
         return "ingen än"
     when = datetime.fromisoformat(b["last_backup"])
     return f"✅ {format_datetime_sv(when.astimezone())} ({b['count']} sparade)"
+
+
+def _age(iso: str) -> timedelta:
+    moment = datetime.fromisoformat(iso)
+    return (datetime.now(moment.tzinfo) if moment.tzinfo else datetime.now()) - moment
 
 
 def ollama_is_up(host: str) -> bool:

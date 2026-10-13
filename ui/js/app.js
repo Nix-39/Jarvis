@@ -65,7 +65,7 @@ async function boot() {
   } catch (e) { $('lockText').textContent = `Kunde inte läsa inställningar: ${e.message}`; return; }
   state.names = Object.fromEntries(state.agents.map((a) => [a.id, a.name]));
   state.names.reminder_agent = state.names.calendar_agent = state.settings.planner_name || 'Planering';
-  state.names.lessons_agent = state.names.sports_agent = orch();
+  state.names.lessons_agent = state.names.sports_agent = state.names.briefing_agent = orch();
   applyNames();
   renderLamps(); renderAgents(); renderWells(); setupBackground(); setupSound(); setupSearch();
   calendar.setPeople(state.settings.people);
@@ -191,8 +191,8 @@ function renderWells() {
     else openHvergelmer();
   });
 }
-function openPanel(html) {
-  panel.innerHTML = html; panel.classList.add('open');
+function openPanel(html, wide = false) {
+  panel.innerHTML = html; panel.classList.add('open'); panel.classList.toggle('wide', wide);
   panel.querySelector('[data-close]')?.addEventListener('click', closePanel);
 }
 function closePanel() { panel.classList.remove('open'); }
@@ -393,11 +393,12 @@ function onEvent(ev) {
     case 'query.queued': step(ev.message); break;
     case 'agent.selected': {
       const label = state.names[d.agent] || d.agent;
-      step(d.reason === 'pending_reply' ? `${orch()}: svar på väntande fråga → ${label}` : d.reason === 'lesson' ? `${orch()}: lärdom` : d.reason === 'sports' ? `${orch()}: resultatlistan` : `${orch()}: '${d.category}' → ${label}`);
+      step(d.reason === 'pending_reply' ? `${orch()}: svar på väntande fråga → ${label}` : d.reason === 'lesson' ? `${orch()}: lärdom` : d.reason === 'sports' ? `${orch()}: resultatlistan` : d.reason === 'briefing' ? `${orch()}: morgonbriefing` : `${orch()}: '${d.category}' → ${label}`);
       busy(d.agent, `Arbetar · <b>${esc(label)}</b>`);
       if (d.agent === 'reminder_agent' || d.agent === 'calendar_agent') fire('root', 'urd');
       else if (d.agent === 'lessons_agent') fire('root', 'mimer');
       else if (d.agent === 'sports_agent') { /* settings only */ }
+      else if (d.agent === 'briefing_agent') { fire('root', 'urd'); fire('root', 'mimer'); fire('root', 'hvergelmer'); }
       else { fire('crown', d.agent); lightAgent(d.agent, true); }
       break; }
     case 'memory.lookup':
@@ -408,7 +409,7 @@ function onEvent(ev) {
       step(ev.message); agentNode(state.busyAgent)?.classList.remove('searching'); break;
     case 'query.completed': {
       const id = d.agent; step(d.success === false ? `${state.names[id] || id} misslyckades` : `${state.names[id] || id} svarade på ${d.seconds} s`);
-      if (id && !['reminder_agent', 'calendar_agent', 'lessons_agent', 'sports_agent'].includes(id)) { fire(id, 'crown'); setTimeout(() => lightAgent(id, false), 500); }
+      if (id && !['reminder_agent', 'calendar_agent', 'lessons_agent', 'sports_agent', 'briefing_agent'].includes(id)) { fire(id, 'crown'); setTimeout(() => lightAgent(id, false), 500); }
       agentNode(id)?.classList.remove('searching');
       const st = state.stats[id] = state.stats[id] || { n: 0, t: [], last: '' }; st.n++; st.t.push(d.seconds || 0); st.last = d.text || st.last;
       if (d.channel && d.channel !== 'ui' && d.reply) { msg('jarvis', d.reply, state.names[id] || id); play('reply'); }
@@ -429,6 +430,7 @@ function onEvent(ev) {
     case 'sports.favorite': sys(ev.message); toast('★ FAVORITLAG', ev.message); play('reply'); sports.refresh(); break;
     case 'news.favorite': newsLine(ev); toast(`📰 NYHET · ${(d.team || '').toUpperCase()}`, ev.message.replace(/^📰 [^:]+: /, '')); sports.refreshNews(); break;
     case 'weather.updated': weather.refresh(); break;
+    case 'briefing.ready': openBriefing(d.briefing); break;
     case 'voice.state': case 'voice.error': voice.onEvent(ev); break;
     case 'voice.wake': step(`${orch()}: hörde sitt namn – lyssnar`); core.pulseWell('mimer'); break;
     case 'lesson.added': case 'lesson.removed': sys(`📜 ${ev.message}`); core.pulseWell('mimer'); break;
@@ -439,6 +441,18 @@ function onEvent(ev) {
     case 'core.offline': sys('Yggdrasil stängs av'); break;
     default: break;
   }
+}
+/* =====================================================================
+   Morning briefing card (asked for with "morgonbriefing")
+   ===================================================================== */
+function openBriefing(b) {
+  if (!b) return;
+  const links = [];
+  const line = (l) => { const i = l.url ? links.push(l.url) - 1 : -1;
+    return `<div class="bline${i >= 0 ? ' link' : ''}"${i >= 0 ? ` data-bl="${i}"` : ''}>${esc(l.text)}${l.source ? `<small>${esc(l.source)}${i >= 0 ? ' ↗' : ''}</small>` : ''}</div>`; };
+  openPanel(`<h3><span>${esc(b.title)}</span><button data-close>✕</button></h3>`
+    + b.sections.map((s) => `<div class="bsec ${esc(s.key)}"><h4><i>${esc(s.icon)}</i>${esc(s.title)}</h4>${s.lines.map(line).join('')}</div>`).join(''), true);
+  panel.querySelectorAll('[data-bl]').forEach((el) => el.onclick = () => openExternal(links[+el.dataset.bl]));
 }
 function toast(head, text) {
   const t = $('toast'); t.innerHTML = `<small>${esc(head)}</small>${esc(text)}`; t.style.setProperty('--tx', ((geo?.cx || 400) - 150) + 'px');

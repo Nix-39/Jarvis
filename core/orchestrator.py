@@ -33,6 +33,7 @@ from agents.general_agent import GeneralAgent
 from agents.lessons_agent import LessonsAgent
 from agents.reminder_agent import ReminderAgent
 from agents.socialmediamanager_agent import SocialMediaManagerAgent
+from agents.briefing_agent import BriefingAgent
 from agents.sports_agent import SportsAgent
 from agents.webdeveloper_agent import WebDeveloperAgent
 
@@ -85,6 +86,7 @@ class JarvisOrchestrator:
         calendar_service: Optional[CalendarService] = None,
         people_provider: Optional[Callable[[], list]] = None,
         sports_control: Optional[object] = None,
+        briefing_service: Optional[object] = None,
     ) -> None:
         """
         Initialize the Orchestrator with infrastructure services, router, and registered agents.
@@ -97,6 +99,7 @@ class JarvisOrchestrator:
         :param reminder_service: Optional ReminderService instance. Self-initialized if None.
         :param sports_control: Optional object for the sports settings (ticker leagues, favourite
                                teams, match mode); enables SportsAgent ("lägg till Frölunda i SHL som favoritlag").
+        :param briefing_service: Optional BriefingService; enables BriefingAgent ("Nexus, morgonbriefing").
         """
         logger.info("Initializing Jarvis Orchestrator pipeline...")
 
@@ -177,6 +180,8 @@ class JarvisOrchestrator:
 
         if sports_control is not None:
             self.agent_registry["sports_agent"] = SportsAgent(sports_control, memory_service=self.memory_service)
+        if briefing_service is not None:
+            self.agent_registry["briefing_agent"] = BriefingAgent(briefing_service, memory_service=self.memory_service)
 
         # 3. Initialize Planner with the validated agent registry
         self.planner = Planner(agent_registry=self.agent_registry)
@@ -211,6 +216,15 @@ class JarvisOrchestrator:
 
         # Step 0: "Nexus, lär dig: ..." / "vad har du lärt dig?" / "glöm lärdom 2" - fixed
         #         commands recognised in Python (never by the model) go to LessonsAgent.
+        briefing = self.agent_registry.get("briefing_agent")
+        if briefing is not None and BriefingAgent.is_command(user_message):
+            briefing.channel = channel            # queries run one at a time (Jarvis Core's lock)
+            event_bus.publish(
+                "agent.selected", "orchestrator", "Morgonbriefing → Nexus",
+                agent="briefing_agent", category=None, reason="briefing",
+            )
+            return self._run("briefing_agent", user_message, channel)
+
         if "sports_agent" in self.agent_registry and SportsAgent.is_command(user_message):
             event_bus.publish(
                 "agent.selected", "orchestrator", "Resultatlistan → Nexus",

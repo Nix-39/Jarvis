@@ -420,3 +420,11 @@ body.no-sports #stage{bottom:0}
 .nitem b{display:block;font-weight:600;font-size:13px}.nitem small{color:var(--muted);font-size:11px}
 .lnote{font-size:12px;color:var(--muted);margin:4px 0 8px}
 .sysmsg.link{cursor:pointer}.sysmsg.link:hover{border-color:var(--accent)}
+/* morning briefing card */
+#panel.wide{width:min(680px,92vw);max-height:84%}
+.bsec{padding:10px 2px 8px;border-bottom:1px solid rgba(255,255,255,.05)}.bsec:last-child{border-bottom:0}
+.bsec h4{font:700 11px var(--font);letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;display:flex;gap:8px;align-items:center}
+.bsec h4 i{font-style:normal;color:var(--accent);font-size:13px;letter-spacing:0}
+.bline{font-size:14px;line-height:1.5;padding:3px 0}.bline small{color:var(--muted);font-size:11.5px;margin-left:8px}
+.bline.link{cursor:pointer;border-radius:5px;padding:3px 6px;margin:0 -6px}.bline.link:hover{background:rgba(255,46,196,.08)}
+.bsec.system .bline{color:#ffb35c}

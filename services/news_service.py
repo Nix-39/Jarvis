@@ -8,7 +8,9 @@ never read aloud and held back in match mode - and the latest matches are
 listed in the sports panel and used by the morning briefing.
 
 Feeds: SVT Sport, Expressen Sport, Sportbladet (Aftonbladet) and ESPN (NHL, NFL,
-football). Fixed hosts only, timeouts and a size cap; the XML is untrusted, so
+football). For the morning briefing it also reads general news (SVT, Expressen,
+BBC World) and ranks the biggest stories: those that several sources cover.
+Fixed hosts only, timeouts and a size cap; the XML is untrusted, so
 documents with a DTD/entities are refused before parsing and every text is
 stripped of markup and shortened. Links are only kept when they point to the
 feed's own site.
@@ -46,7 +48,19 @@ FEEDS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("ESPN", "https://www.espn.com/espn/rss/nfl/news", ("www.espn.com", "espn.com")),
     ("ESPN", "https://www.espn.com/espn/rss/soccer/news", ("www.espn.com", "espn.com")),
 )
-FEED_HOSTS = {urlparse(url).hostname for _, url, _ in FEEDS}
+WORLD_FEEDS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("SVT", "https://www.svt.se/nyheter/utrikes/rss.xml", ("www.svt.se", "svt.se")),
+    ("SVT", "https://www.svt.se/rss.xml", ("www.svt.se", "svt.se")),
+    ("Expressen", "https://feeds.expressen.se/nyheter/", ("www.expressen.se", "expressen.se")),
+    ("BBC", "https://feeds.bbci.co.uk/news/world/rss.xml", ("www.bbc.co.uk", "www.bbc.com", "bbc.co.uk", "bbc.com")),
+)
+FEED_HOSTS = {urlparse(url).hostname for _, url, _ in FEEDS + WORLD_FEEDS}
+WORLD_MAX_AGE = timedelta(hours=18)
+SOURCE_ORDER = {"SVT": 0, "Expressen": 1, "BBC": 2}     # which headline represents a story
+# Capitalised words that say nothing about which story it is.
+NOT_NAMES = {"det", "den", "detta", "dessa", "efter", "infor", "under", "over", "varfor", "vem", "vad", "hur", "har", "darfor",
+             "nya", "nytt", "live", "just", "the", "this", "what", "why", "how", "who", "after", "with", "from", "they",
+             "experten", "uppgifter", "analys", "kommentar", "kronika", "debatt", "watch", "video", "bild", "bilder", "sverige", "svensk", "svenska"}
 REFRESH_SECONDS = 900
 MAX_FEED_BYTES = 2 * 1024 * 1024
 MAX_AGE = timedelta(hours=48)
@@ -103,6 +117,7 @@ class NewsService:
         self._seen: list[str] = self._load_seen()
         self._first_run = not self._seen
         self._items: list[NewsItem] = []
+        self._world: list[NewsItem] = []
         self._lock = threading.Lock()
         self._wake = threading.Event()
 
@@ -111,6 +126,22 @@ class NewsService:
     def snapshot(self) -> list[dict[str, Any]]:
         with self._lock:
             return [asdict(i) for i in self._items]
+
+    def world_top(self, limit: int = 4) -> list[dict[str, Any]]:
+        """The biggest stories right now: headlines whose names/places appear at several sources."""
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            items = [i for i in self._world if now - datetime.fromisoformat(i.published) <= WORLD_MAX_AGE]
+        keys = {i.url: story_keys(i.title) for i in items}
+        cover = {i.url: len({o.source for o in items if o.source != i.source and keys[i.url] & keys[o.url]}) for i in items}
+        ranked = sorted(items, key=lambda i: (-cover[i.url], SOURCE_ORDER.get(i.source, 9), -datetime.fromisoformat(i.published).timestamp()))
+        chosen: list[NewsItem] = []
+        for item in ranked:
+            if len(chosen) >= limit or (cover[item.url] == 0 and len(chosen) >= 3):
+                break                         # big stories first; at most a few smaller ones to fill up
+            if not any(keys[item.url] & keys[c.url] for c in chosen):      # one headline per story
+                chosen.append(item)
+        return [asdict(i) for i in chosen]
 
     def recent(self, since: datetime) -> list[dict[str, Any]]:
         """Matched headlines published after `since` (for the morning briefing)."""
@@ -136,6 +167,7 @@ class NewsService:
                     break
 
     def refresh(self) -> None:
+        self._refresh_world()
         teams = list(dict.fromkeys(f.get("team", "") for f in self.favorites_provider() if f.get("team")))
         if not teams:
             with self._lock:
@@ -170,6 +202,21 @@ class NewsService:
         for item in reversed(new[:5]):
             event_bus.publish("news.favorite", "news", f"📰 {item.team}: {item.title}",
                               url=item.url, feed=item.source, team=item.team)
+
+    def _refresh_world(self) -> None:
+        found: dict[str, NewsItem] = {}
+        for source, url, hosts in WORLD_FEEDS:
+            try:
+                for item in self._read(url, source, hosts):
+                    found.setdefault(item.url, item)
+            except Exception as exc:
+                logger.warning("World news feed %s failed: %s", url, exc)
+                with self._lock:
+                    for old in self._world:
+                        if old.source == source:
+                            found.setdefault(old.url, old)
+        with self._lock:
+            self._world = sorted(found.values(), key=lambda i: i.published, reverse=True)[:150]
 
     # ------------------------------------------------------------------
 
@@ -218,3 +265,13 @@ class NewsService:
             self._seen_file.write_text(json.dumps(self._seen), encoding="utf-8")
         except OSError as exc:
             logger.debug("Could not save seen news: %s", exc)
+
+
+def story_keys(title: str) -> set[str]:
+    """Names and places in a headline as short keys: 'Ukraina'/'Ukraine' -> 'ukrai', 'Trump' -> 'trump'."""
+    keys = set()
+    for word in re.findall(r"[A-ZÅÄÖ][\wÅÄÖåäö'-]{3,}", title):
+        plain = re.sub(r"[^a-z0-9]", "", word.lower().translate(str.maketrans("åäöé", "aaoe")))
+        if len(plain) >= 4 and plain not in NOT_NAMES:
+            keys.add(plain[:5])
+    return keys

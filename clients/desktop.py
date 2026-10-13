@@ -49,7 +49,8 @@ ICON_ICO = Config.UI_DIR / "assets" / "app.ico"
 ICON_PNG = Config.UI_DIR / "assets" / "app.png"
 DESKTOP_PORT = int(os.getenv("DESKTOP_PORT", "47832"))   # single instance + "show" signal (localhost only)
 ALLOWED_LINK_HOSTS = {"www.espn.com", "espn.com", "www.shl.se", "www.hockeyallsvenskan.se", "www.thesportsdb.com", "mail.google.com",
-                      "calendar.google.com", "www.smhi.se", "www.svt.se", "www.expressen.se", "www.aftonbladet.se"}
+                      "calendar.google.com", "www.smhi.se", "www.svt.se", "www.expressen.se", "www.aftonbladet.se",
+                      "www.bbc.co.uk", "www.bbc.com"}
 
 LOADING_HTML = """<!doctype html><html><body style="margin:0;height:100vh;display:grid;place-items:center;background:#040404;
 font-family:Segoe UI,sans-serif;color:#a6987a;letter-spacing:.14em"><div style="text-align:center">

@@ -119,6 +119,14 @@ Say **"Hej Nexus …"** (or just "Nexus, …"), click the microphone in the chat
 - **Telegram voice messages** are transcribed locally the same way and answered as text.
 - Models download once into `models/` (not in git, not in the backup).
 
+## Morning briefing
+
+Ask for it – "Nexus, morgonbriefing", "god morgon Nexus", "vad händer idag?" – in the window, by voice or on Telegram:
+
+- **What:** the weather today, the family's bookings and reminders today (and what starts tomorrow; referee matches with assembly time), the favourite teams' results since yesterday, today's games and headlines, the biggest world stories with links, and a line about the system only when something is wrong (backup, Ollama, web search, voice).
+- **World news:** SVT, Expressen and BBC World; a story counts as big when several of them carry it (matched on the names and places in the headlines), one headline per story.
+- **How:** written by fixed templates in Python from the system's own data – no language model, so it comes at once and every time and result is right. A card in the window (links open the article), the text in the log, a short spoken version at the computer and the full text with links on Telegram.
+
 ## Weather
 
 The weather at home in the header (icon, temperature and a badge such as "regn 17:00"); click it for the weather now (feels-like, wind), a rain alert for the next 12 hours, an hourly strip and five days.
@@ -243,7 +251,8 @@ jarvis/
 │   ├── memory_service.py   # Short-term memory (SQLite)
 │   ├── backup_service.py   # Encrypted nightly backup of data/ (AES-256-GCM)
 │   ├── sports_service.py   # Sports results (ESPN + TheSportsDB, SHL live via API-Sports), favourites, logo cache
-│   ├── news_service.py     # Headlines about favourite teams (SVT, Expressen, Sportbladet, ESPN RSS)
+│   ├── news_service.py     # Headlines about favourite teams + biggest world stories (RSS)
+│   ├── briefing_service.py # Morning briefing from weather, calendar, sports, news (templates)
 │   ├── weather_service.py  # Weather from SMHI open data (SNOW1gv1)
 │   ├── speech_service.py   # Voice: KB-Whisper (listen), Piper (speak), "Hej Nexus"
 │   ├── calendar_service.py # Family calendar Urd (SQLite: bookings, shifts, matches)
