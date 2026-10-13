@@ -94,7 +94,7 @@ export class Calendar {
     this.anchor = today0(); if (view) this.view = view; this.draw(); this.el.classList.add('open');
   }
   close() { this.el.classList.remove('open'); }
-  color(pid) { return (this.byId[pid] || { color: '#f0b43c' }).color; }
+  color(pid) { return (this.byId[pid] || { color: '#ff2ec4' }).color; }
   name(pid) { return (this.byId[pid] || { name: '' }).name; }
 
   showDetail(ev) {

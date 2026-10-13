@@ -1,7 +1,7 @@
 """
-LessonsAgent - lets the user teach Oden in plain Swedish.
+LessonsAgent - lets the user teach Nexus in plain Swedish.
 
-    "Oden, lär dig: när jag säger match menar jag domaruppdrag"   -> proposal, "ja" saves
+    "Nexus, lär dig: när jag säger match menar jag domaruppdrag"  -> proposal, "ja" saves
     "bara kalendern" / "gäller alla"                              -> changes where it applies
     "vad har du lärt dig?"                                        -> numbered list
     "glöm lärdom 3"                                               -> proposal, "ja" removes
@@ -26,16 +26,16 @@ from services.memory_service import DEFAULT_SESSION_ID, MemoryService
 logger = get_logger(__name__)
 
 PENDING_TTL = timedelta(minutes=15)
-_ODEN = r"^\s*(?:hej\s+)?(?:oden[\s,:!.-]+)?"
-ADD_RE = re.compile(_ODEN + r"(?:lär dig|ny lärdom|lärdom)\b[\s:,.-]*(?P<text>.+)$", re.IGNORECASE | re.DOTALL)
-LIST_RE = re.compile(_ODEN + r"(?:vad har du lärt dig|visa (?:dina |mina )?lärdomar|(?:dina |mina )?lärdomar)\s*[?.!]*\s*$", re.IGNORECASE)
-REMOVE_RE = re.compile(_ODEN + r"(?:glöm|ta bort|radera)\s+lärdom(?:en)?\s*(?:nr\.?|nummer)?\s*(?P<num>\d{1,3})\b", re.IGNORECASE)
+_NAME = r"^\s*(?:hej\s+)?(?:(?:nexus|oden)[\s,:!.-]+)?"
+ADD_RE = re.compile(_NAME + r"(?:lär dig|ny lärdom|lärdom)\b[\s:,.-]*(?P<text>.+)$", re.IGNORECASE | re.DOTALL)
+LIST_RE = re.compile(_NAME + r"(?:vad har du lärt dig|visa (?:dina |mina )?lärdomar|(?:dina |mina )?lärdomar)\s*[?.!]*\s*$", re.IGNORECASE)
+REMOVE_RE = re.compile(_NAME + r"(?:glöm|ta bort|radera)\s+lärdom(?:en)?\s*(?:nr\.?|nummer)?\s*(?P<num>\d{1,3})\b", re.IGNORECASE)
 YES_RE = re.compile(r"^\s*(ja|japp|jo|jepp|ok|okej|kör|stämmer|spara|perfekt|yes)\b", re.IGNORECASE)
 NO_RE = re.compile(r"^\s*(nej|nä|avbryt|stopp|glöm det|no)[\s.!]*$", re.IGNORECASE)
 
 # Words the user may use for a scope, in a correction ("bara kalendern") or a prefix ("[kalender] ...").
 SCOPE_WORDS: dict[str, str] = {
-    "alla": "alla", "allt": "alla", "överallt": "alla", "oden": "oden", "agentval": "oden",
+    "alla": "alla", "allt": "alla", "överallt": "alla", "nexus": "nexus", "oden": "nexus", "agentval": "nexus",
     "kalender": "kalender", "kalendern": "kalender", "urd": "kalender", "planering": "kalender",
     "påminnelser": "påminnelser", "påminnelse": "påminnelser", "påminnelserna": "påminnelser",
     "allmänt": "allmänt", "utbildning": "utbildning", "karriär": "karriär", "business": "business",
@@ -76,7 +76,7 @@ class LessonsAgent:
 
     @staticmethod
     def is_scope_reply(message: str) -> bool:
-        """'bara kalendern', 'gäller alla', 'nej, den ska gälla Oden' - a correction to a pending lesson."""
+        """'bara kalendern', 'gäller alla', 'nej, den ska gälla Nexus' - a correction to a pending lesson."""
         return bool(SCOPE_REPLY_RE.match(message))
 
     # ------------------------------------------------------------------
@@ -118,7 +118,7 @@ class LessonsAgent:
             pending["created"] = datetime.now(timezone.utc).isoformat()
             self._save_pending(pending)
             return self._card(pending)
-        return ('Säg till exempel "Oden, lär dig: när jag säger match menar jag domaruppdrag", '
+        return ('Säg till exempel "Nexus, lär dig: när jag säger match menar jag domaruppdrag", '
                 '"vad har du lärt dig?" eller "glöm lärdom 2".')
 
     # ------------------------------------------------------------------
@@ -153,7 +153,7 @@ class LessonsAgent:
     def _list(self) -> str:
         lessons = self.book.all()
         if not lessons:
-            return 'Jag har inga lärdomar än. Lär mig något med "Oden, lär dig: ...".'
+            return 'Jag har inga lärdomar än. Lär mig något med "Nexus, lär dig: ...".'
         lines = [f"{l.number}. {l.text} ({l.scope_label})" for l in lessons]
         return "Det här har du lärt mig:\n" + "\n".join(lines) + '\n\nSäg "glöm lärdom 2" för att ta bort en.'
 

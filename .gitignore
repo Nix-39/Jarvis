@@ -11,6 +11,9 @@ venv/
 data/
 logs/
 
+# Downloaded AI models (voice) - large and rebuildable
+models/
+
 # OS/IDE-skräp
 .DS_Store
 Thumbs.db

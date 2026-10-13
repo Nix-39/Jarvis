@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body class="no-sports no-weather">
-<canvas id="sparks"></canvas><div class="grid"></div><div id="drop">SLÄPP FÖR ATT LÄRA YGGDRASIL</div>
+<canvas id="stars"></canvas><div class="grid"></div><div id="drop">SLÄPP FÖR ATT LÄRA NEXUS</div>
 
 <div id="lock">
   <div class="lockbox">
@@ -22,8 +22,8 @@
   <div class="lamps" id="lamps"></div>
   <div class="spacer"></div>
   <span class="clock" id="clock"></span>
-  <button class="btn gold wx" id="wxBtn" hidden><span id="wxIcon"></span><b id="wxTemp"></b><em id="wxWarn" hidden></em></button>
-  <div class="hwrap"><button class="btn gold" id="bgBtn">Bakgrund</button>
+  <button class="btn hud wx" id="wxBtn" hidden><span id="wxIcon"></span><b id="wxTemp"></b><em id="wxWarn" hidden></em></button>
+  <div class="hwrap"><button class="btn hud" id="bgBtn">Bakgrund</button>
     <div class="pop" id="bgPop"><h4>BAKGRUNDSBILD</h4>
       <div class="srow"><span>☀</span><span>Styrka</span><input type="range" id="bgStrength" min="0" max="100"><span class="v" id="vS"></span></div>
       <div class="srow"><span>⤢</span><span>Storlek</span><input type="range" id="bgSize" min="60" max="160"><span class="v" id="vZ"></span></div>
@@ -36,7 +36,7 @@
       <input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp" hidden>
     </div>
   </div>
-  <div class="hwrap"><button class="btn gold" id="soundBtn">Ljud</button>
+  <div class="hwrap"><button class="btn hud" id="soundBtn">Ljud</button>
     <div class="pop" id="soundPop"><h4>LJUDNIVÅER</h4>
       <label class="master"><span>Stäng av allt ljud</span><input type="checkbox" id="masterMute"><i></i></label>
       <div id="soundRows"></div>
@@ -61,14 +61,13 @@
   </aside>
   <section id="agents"></section>
   <div id="bgwrap"><div id="bgimg"></div><div id="bgdim"></div></div>
-  <canvas id="myth"></canvas>
-  <canvas id="tree"></canvas>
-  <div class="title" id="title"><h1 id="titleName">YGGDRASIL</h1></div>
+  <canvas id="chart"></canvas>
+  <canvas id="nexus"></canvas>
   <div id="wells"></div>
   <aside id="chat">
     <div class="chathead"><span class="head">LOGG</span><input id="search" placeholder="Sök  Ctrl+F" autocomplete="off"><label class="toggle"><input type="checkbox" id="steps" checked> steg</label></div>
     <div id="log"></div>
-    <form id="ask"><input id="askInput" placeholder="Fråga Oden…  (Ctrl+Alt+J)" autocomplete="off" maxlength="4000"></form>
+    <form id="ask"><input id="askInput" placeholder="Fråga Nexus…  (Ctrl+Alt+J)" autocomplete="off" maxlength="4000"></form>
   </aside>
   <div id="panel"></div>
   <div id="cal"></div>

@@ -1,10 +1,12 @@
-// Yggdrasil desktop UI - wires the live core (API + event feed) to the visuals.
+// Desktop UI - wires the live core (API + event feed) to the visuals: Nexus in the
+// middle, the star chart around it and shooting stars between Nexus, agents and planets.
 import { getToken, api, health, followEvents, openExternal } from './api.js';
-import { Tree, WELLS, S as TREE_S } from './tree.js';
-import { Myth, Sparks } from './runes.js';
+import { Nexus, WELLS, S as CORE_S, CORE_Y } from './nexus.js';
+import { StarChart, Starfield } from './cosmos.js';
 import { Bolts } from './effects.js';
 import { SportsTicker } from './sports.js';
 import { WeatherWidget } from './weather.js';
+import { VoiceControl } from './voice.js';
 import { Calendar, today0, addDays, sameDay, dayLabel, timeSpan, MON, detailHTML, whenLabel, rangeShort } from './calendar.js';
 
 const $ = (id) => document.getElementById(id);
@@ -29,9 +31,9 @@ const state = {
   settings: null, agents: [], names: {}, stats: {}, busyAgent: null, oldestId: null,
   status: {}, securityRejected: 0, photos: new Set(),
 };
-const tree = new Tree($('tree'));
-const myth = new Myth($('myth'));
-const sparks = new Sparks($('sparks'));
+const core = new Nexus($('nexus'));
+const chart = new StarChart($('chart'));
+const stars = new Starfield($('stars'));
 const bolts = new Bolts($('guides'), $('bolts'));
 const calendar = new Calendar($('cal'), { onDelete: async (ev, { whole = true } = {}) => {
   const path = ev.source === 'reminder' ? `/reminders/${ev.id}`
@@ -40,6 +42,7 @@ const calendar = new Calendar($('cal'), { onDelete: async (ev, { whole = true } 
 } });
 const panel = $('panel');
 const sports = new SportsTicker({ onLayout: () => dispatchEvent(new Event('resize')) });
+const voice = new VoiceControl({ getSettings: () => state.settings, saveSettings: (p) => saveSettings(p), setStatus: (t) => setStatus(t), sys: (t) => sys(t) });
 const weather = new WeatherWidget({ openPanel: (html) => openPanel(html), isPanel: (title) => panel.classList.contains('open') && panel.querySelector('h3')?.textContent.startsWith(title) });
 let anchors = {}, geo = null;
 
@@ -62,13 +65,13 @@ async function boot() {
   } catch (e) { $('lockText').textContent = `Kunde inte läsa inställningar: ${e.message}`; return; }
   state.names = Object.fromEntries(state.agents.map((a) => [a.id, a.name]));
   state.names.reminder_agent = state.names.calendar_agent = state.settings.planner_name || 'Planering';
-  state.names.lessons_agent = state.names.sports_agent = oden();
+  state.names.lessons_agent = state.names.sports_agent = orch();
   applyNames();
   renderLamps(); renderAgents(); renderWells(); setupBackground(); setupSound(); setupSearch();
   calendar.setPeople(state.settings.people);
   layout();
   $('lock').classList.add('gone');
-  await Promise.allSettled([loadHistory(), refreshStatus(), refreshCalendar(), refreshSystem(), loadBackground(), sports.refresh(), weather.refresh()]);
+  await Promise.allSettled([loadHistory(), refreshStatus(), refreshCalendar(), refreshSystem(), loadBackground(), sports.refresh(), weather.refresh(), voice.init()]);
   followEvents(onEvent, (up) => { if (!up) setStatus('Tappade kontakten med kärnan – försöker igen…'); else setStatus(null); });
   setInterval(refreshStatus, 15000); setInterval(refreshSystem, 2000); setInterval(refreshCalendar, 60000);
   setInterval(() => sports.refresh(), 60000);
@@ -79,10 +82,11 @@ async function boot() {
 
 function applyNames() {
   const sys = (state.settings.system_name || 'Yggdrasil').toUpperCase();
-  $('brandName').textContent = sys; $('titleName').textContent = sys; $('lockTitle').textContent = sys; document.title = state.settings.system_name || 'Yggdrasil';
-  $('askInput').placeholder = `Fråga ${state.settings.orchestrator_name || 'Oden'}…  (Ctrl+Alt+J)`;
+  $('brandName').textContent = sys; $('lockTitle').textContent = sys; document.title = state.settings.system_name || 'Yggdrasil';
+  $('drop').textContent = `SLÄPP FÖR ATT LÄRA ${orch().toUpperCase()}`;
+  $('askInput').placeholder = `Fråga ${orch()}…  (Ctrl+Alt+J)`;
 }
-const oden = () => state.settings?.orchestrator_name || 'Oden';
+const orch = () => state.settings?.orchestrator_name || 'Nexus';
 
 /* =====================================================================
    Layout
@@ -93,15 +97,13 @@ function layout() {
   document.documentElement.style.setProperty('--mid', (L + mid / 2) + 'px');
   const agentsEl = $('agents'); agentsEl.style.left = L + 'px'; agentsEl.style.width = mid + 'px';
   const top = 140, size = Math.max(260, Math.min(mid, H - top - 40, 560));
-  tree.resize(size);
-  const tl = L + (mid - size) / 2, tt = top + (H - top - size) / 2 - 10, k = size / TREE_S;
-  $('tree').style.left = tl + 'px'; $('tree').style.top = tt + 'px';
+  core.resize(size);
+  const tl = L + (mid - size) / 2, tt = top + (H - top - size) / 2 - 10, k = size / CORE_S;
+  $('nexus').style.left = tl + 'px'; $('nexus').style.top = tt + 'px';
   const map = ([x, y]) => ({ x: tl + x * k, y: tt + y * k });
-  const a = tree.anchors();
+  const a = core.anchors();
   anchors = { crown: map(a.crown), root: map(a.root) };
   for (const w of WELLS) anchors[w.id] = map(a[w.id]);
-  const title = $('title'), c = map([TREE_S / 2, 0]);
-  title.style.left = (c.x - 260) + 'px'; title.style.width = '520px'; title.style.top = (tt + size - 28) + 'px';
   document.querySelectorAll('.well').forEach((w) => { const p = anchors[w.dataset.well]; w.style.left = p.x + 'px'; w.style.top = p.y + 'px'; });
   const st = stage.getBoundingClientRect();
   document.querySelectorAll('#agents .node').forEach((n) => {
@@ -113,8 +115,8 @@ function layout() {
     if (chip) { const r = chip.getBoundingClientRect(); anchors[id] = { x: r.left + r.width / 2 - st.left, y: r.bottom - st.top }; }
   }
   bolts.setAnchors(anchors, state.agents.map((x) => x.id));
-  geo = { cx: tl + size / 2, cy: tt + size * 0.5, s: size, midL: L, midR: L + mid };
-  myth.resize(W, H, geo);
+  geo = { cx: tl + size / 2, cy: tt + CORE_Y * k, s: size, midL: L, midR: L + mid };
+  chart.resize(W, H, geo);
   layoutBackground();
   renderPeople();
 }
@@ -152,7 +154,7 @@ function renderStatus() {
   if (state.busyAgent) { $('status').innerHTML = state.busyText || `Arbetar · <b>${esc(state.names[state.busyAgent] || state.busyAgent)}</b>`; chip.classList.add('busy'); }
   else { $('status').textContent = 'Online · redo'; chip.classList.remove('busy'); }
 }
-function busy(agent, html) { state.busyAgent = agent; state.busyText = html; tree.busy = !!agent; renderStatus(); }
+function busy(agent, html) { state.busyAgent = agent; state.busyText = html; core.busy = !!agent; renderStatus(); }
 
 /* =====================================================================
    Agents
@@ -171,7 +173,7 @@ const agentNode = (id) => document.querySelector(`#agents .node[data-id="${id}"]
 function lightAgent(id, on) { agentNode(id)?.classList.toggle('active', on); }
 bolts.onImpact = (key) => {
   const n = agentNode(key); if (n) { n.classList.remove('hit'); void n.offsetWidth; n.classList.add('hit'); }
-  tree.pulseWell(key); if (key === 'crown' || key === 'root') tree.burst();
+  core.pulseWell(key); if (key === 'crown' || key === 'root') core.burst();
 };
 function fire(from, to, n) { bolts.fire(from, to, n); play('fx'); }
 
@@ -180,8 +182,9 @@ function fire(from, to, n) { bolts.fire(from, to, n); play('fx'); }
    ===================================================================== */
 function renderWells() {
   $('wells').innerHTML = WELLS.map((w) => `<div class="well" data-well="${w.id}"><div class="hit"></div><span>${w.name}${w.id === 'hvergelmer' ? '<em class="badge" id="secBadge" hidden>0</em>' : ''}</span><small>${w.role}</small></div>`).join('');
+  document.querySelectorAll('.well').forEach((w) => w.onmouseenter = () => core.pulseWell(w.dataset.well));   // planet lights up, name fades in
   document.querySelectorAll('.well').forEach((w) => w.onclick = (e) => {
-    e.stopPropagation(); tree.pulseWell(w.dataset.well);
+    e.stopPropagation(); core.pulseWell(w.dataset.well);
     if (w.dataset.well === 'urd') { closePanel(); calendar.open(); }
     else if (w.dataset.well === 'mimer') openMimer();
     else openHvergelmer();
@@ -201,7 +204,7 @@ async function openMimer() {
     <div class="stat"><span>Samtal i minnet</span><b>${stats ? stats.conversations : '–'}</b></div>
     <div class="stat"><span>Dokumentdelar</span><b>${stats ? stats.document_chunks : '–'}</b></div>
     <div class="stat"><span>Mappar</span><b>${folders.length ? esc(folders.slice(0, 8).join(' · ')) : '–'}</b></div>
-    <div class="dropzone">Dra och släpp dokument (txt, md, pdf, docx) var som helst i fönstret – ${esc(oden())} frågar var de ska sparas och lär sig innehållet.</div>`);
+    <div class="dropzone">Dra och släpp dokument (txt, md, pdf, docx) var som helst i fönstret – ${esc(orch())} frågar var de ska sparas och lär sig innehållet.</div>`);
 }
 function backupHTML(b) {
   if (!b) return '<div class="chk"><span>💾</span><div>Backup<small>Kunde inte läsa status.</small></div></div>';
@@ -317,7 +320,7 @@ function md(text) {
   return html;
 }
 function msg(who, text, meta, time, opts = {}) {
-  if (who === 'jarvis' && meta && meta !== oden()) meta = `${oden()} · ${meta}`;   // Oden answers, the agent did the work
+  if (who === 'jarvis' && meta && meta !== orch()) meta = `${orch()} · ${meta}`;   // Nexus answers, the agent did the work
   const m = document.createElement('div'); m.className = `msg ${who}${opts.err ? ' err' : ''}`;
   m.innerHTML = `<small><span>${esc(meta)}</span><span>${time || now()}</span></small><div class="md">${md(text)}</div>`;
   add(m, opts.prepend); return m;
@@ -343,18 +346,18 @@ async function loadHistory(beforeId) {
 function histMsg(r, prepend = false) {
   const d = new Date(r.created_at), t = sameDay(d, new Date()) ? timeOf(r.created_at) : `${d.getDate()} ${MON[d.getMonth()]} ${timeOf(r.created_at)}`;
   if (r.role === 'user') msg('user', r.content, 'Du', t, { prepend });
-  else msg('jarvis', r.content, state.names[r.agent_id] || r.agent_id || oden(), t, { prepend });
+  else msg('jarvis', r.content, state.names[r.agent_id] || r.agent_id || orch(), t, { prepend });
 }
 
 let waiting = false;
 $('ask').addEventListener('submit', async (e) => {
   e.preventDefault(); const input = $('askInput'), text = input.value.trim(); if (!text || waiting) return;
   input.value = ''; waiting = true; msg('user', text, 'Du');
-  const typing = document.createElement('div'); typing.className = 'typing'; typing.textContent = `${oden().toUpperCase()} TÄNKER…`; add(typing);
+  const typing = document.createElement('div'); typing.className = 'typing'; typing.textContent = `${orch().toUpperCase()} TÄNKER…`; add(typing);
   try {
     const res = await api('/chat', { method: 'POST', body: { message: text, channel: 'ui' } });
     typing.remove(); msg('jarvis', res.reply, state.names[res.agent] || res.agent, null, { err: !res.success }); play('reply');
-  } catch (err) { typing.remove(); msg('jarvis', `Något gick fel: ${err.message}`, oden(), null, { err: true }); }
+  } catch (err) { typing.remove(); msg('jarvis', `Något gick fel: ${err.message}`, orch(), null, { err: true }); }
   finally { waiting = false; }
 });
 
@@ -372,19 +375,19 @@ function applySearch(el) {
 /* =====================================================================
    Live events -> visuals
    ===================================================================== */
-const CHANNEL = { terminal: 'Terminal', telegram: '✈ Telegram', ui: 'Chatt', debug: 'Felsökning' };
+const CHANNEL = { terminal: 'Terminal', telegram: '✈ Telegram', ui: 'Chatt', voice: '🎙 Röst', debug: 'Felsökning' };
 function onEvent(ev) {
   const d = ev.data || {};
   switch (ev.type) {
     case 'query.received':
       if (d.channel === 'telegram') { flashLamp('telegram'); fire('telegram', 'crown'); }
       if (d.channel !== 'ui' && d.text) msg('user', d.text, CHANNEL[d.channel] || d.channel);
-      busy('__oden', `<b>${esc(oden())}</b> analyserar`);
+      busy('__orch', `<b>${esc(orch())}</b> analyserar`);
       break;
     case 'query.queued': step(ev.message); break;
     case 'agent.selected': {
       const label = state.names[d.agent] || d.agent;
-      step(d.reason === 'pending_reply' ? `${oden()}: svar på väntande fråga → ${label}` : d.reason === 'lesson' ? `${oden()}: lärdom` : d.reason === 'sports' ? `${oden()}: resultatlistan` : `${oden()}: '${d.category}' → ${label}`);
+      step(d.reason === 'pending_reply' ? `${orch()}: svar på väntande fråga → ${label}` : d.reason === 'lesson' ? `${orch()}: lärdom` : d.reason === 'sports' ? `${orch()}: resultatlistan` : `${orch()}: '${d.category}' → ${label}`);
       busy(d.agent, `Arbetar · <b>${esc(label)}</b>`);
       if (d.agent === 'reminder_agent' || d.agent === 'calendar_agent') fire('root', 'urd');
       else if (d.agent === 'lessons_agent') fire('root', 'mimer');
@@ -407,20 +410,22 @@ function onEvent(ev) {
       busy(null); break; }
     case 'reminder.created': case 'reminder.cancelled': sys(`⏰ ${ev.message}`); fire('root', 'urd'); refreshCalendar(); break;
     case 'calendar.created': case 'calendar.updated': case 'calendar.cancelled': sys(`📅 ${ev.message}`); fire('root', 'urd'); refreshCalendar(); break;
-    case 'reminder.delivered': sys(`⏰ ${ev.message}`); tree.pulseWell('urd'); toast('⏰ PÅMINNELSE', ev.message.replace(/^Påminnelse skickad: /, '')); play('reminder'); refreshCalendar(); break;
-    case 'backup.started': step(ev.message); tree.pulseWell('hvergelmer'); break;
+    case 'reminder.delivered': sys(`⏰ ${ev.message}`); core.pulseWell('urd'); toast('⏰ PÅMINNELSE', ev.message.replace(/^Påminnelse skickad: /, '')); play('reminder'); refreshCalendar(); break;
+    case 'backup.started': step(ev.message); core.pulseWell('hvergelmer'); break;
     case 'backup.completed': case 'backup.failed': {
       const failed = ev.type === 'backup.failed';
-      sys(`${failed ? '⚠️' : '💾'} ${ev.message}`); tree.pulseWell('hvergelmer');
+      sys(`${failed ? '⚠️' : '💾'} ${ev.message}`); core.pulseWell('hvergelmer');
       if (failed) toast('⚠️ BACKUP', ev.message);
       if (panel.classList.contains('open') && panel.textContent.includes('HVERGELMER')) openHvergelmer();
       break; }
     case 'sports.updated': case 'sports.leagues': sports.refresh(); break;
     case 'weather.updated': weather.refresh(); break;
-    case 'lesson.added': case 'lesson.removed': sys(`📜 ${ev.message}`); tree.pulseWell('mimer'); break;
-    case 'memory.synced': sys('Långtidsminnet uppdaterat'); tree.pulseWell('mimer'); break;
-    case 'memory.document_added': sys(`📄 ${ev.message}`); tree.pulseWell('mimer'); break;
-    case 'security.rejected': { state.securityRejected++; const b = $('secBadge'); b.hidden = false; b.textContent = state.securityRejected; sys(`🛡️ ${ev.message}`); tree.pulseWell('hvergelmer'); break; }
+    case 'voice.state': case 'voice.error': voice.onEvent(ev); break;
+    case 'voice.wake': step(`${orch()}: hörde sitt namn – lyssnar`); core.pulseWell('mimer'); break;
+    case 'lesson.added': case 'lesson.removed': sys(`📜 ${ev.message}`); core.pulseWell('mimer'); break;
+    case 'memory.synced': sys('Långtidsminnet uppdaterat'); core.pulseWell('mimer'); break;
+    case 'memory.document_added': sys(`📄 ${ev.message}`); core.pulseWell('mimer'); break;
+    case 'security.rejected': { state.securityRejected++; const b = $('secBadge'); b.hidden = false; b.textContent = state.securityRejected; b.closest('.well')?.classList.add('alert'); sys(`🛡️ ${ev.message}`); core.pulseWell('hvergelmer'); break; }
     case 'core.online': sys('🟢 Yggdrasil är online'); refreshStatus(); break;
     case 'core.offline': sys('Yggdrasil stängs av'); break;
     default: break;
@@ -432,7 +437,7 @@ function toast(head, text) {
 }
 
 /* =====================================================================
-   File drop -> Mimer (Oden asks where it belongs)
+   File drop -> Mimer (Nexus asks where it belongs)
    ===================================================================== */
 let dragDepth = 0;
 addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
@@ -445,7 +450,7 @@ async function intake(file) {
   if (file.size > 25 * 1024 * 1024) { sys(`${file.name} är större än 25 MB.`); return; }
   let folders = [];
   try { folders = await api('/documents/folders'); } catch { /* none */ }
-  const m = msg('jarvis', `Var vill du att jag sparar **${file.name}**?`, oden());
+  const m = msg('jarvis', `Var vill du att jag sparar **${file.name}**?`, orch());
   const box = document.createElement('div'); box.className = 'secbtns'; box.style.marginTop = '8px';
   box.innerHTML = folders.map((f) => `<button data-folder="${esc(f)}">${esc(f)}</button>`).join('') + '<button data-folder="__new">Ny mapp…</button>';
   m.appendChild(box);
@@ -455,8 +460,8 @@ async function intake(file) {
     box.remove(); msg('user', folder, 'Du');
     try {
       const r = await api(`/documents?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(file.name)}`, { method: 'PUT', raw: file });
-      msg('jarvis', `Sparad som **${r.path}**. Jag lär mig innehållet nu.`, oden()); fire('root', 'mimer');
-    } catch (err) { msg('jarvis', `Kunde inte spara filen: ${err.message}`, oden(), null, { err: true }); }
+      msg('jarvis', `Sparad som **${r.path}**. Jag lär mig innehållet nu.`, orch()); fire('root', 'mimer');
+    } catch (err) { msg('jarvis', `Kunde inte spara filen: ${err.message}`, orch(), null, { err: true }); }
   });
 }
 
@@ -501,18 +506,18 @@ function layoutBackground() {
   if (!geo || !state.settings) return; const b = state.settings.background, w = $('bgwrap'), mid = geo.midR - geo.midL;
   const W = mid * b.size / 100, H = W / bgRatio, cx = geo.midL + mid / 2 + (b.x / 100) * mid, cy = geo.cy + (b.y / 100) * geo.s;
   Object.assign(w.style, { width: W + 'px', height: H + 'px', left: (cx - W / 2) + 'px', top: (cy - H / 2) + 'px' });
-  const dx = ((geo.cx - (cx - W / 2)) / W * 100).toFixed(1), dy = ((geo.cy - geo.s * 0.12 - (cy - H / 2)) / H * 100).toFixed(1);
+  const dx = ((geo.cx - (cx - W / 2)) / W * 100).toFixed(1), dy = ((geo.cy - (cy - H / 2)) / H * 100).toFixed(1);
   $('bgdim').style.background = `radial-gradient(ellipse 20% 30% at ${dx}% ${dy}%,rgba(0,0,0,${b.dim / 100}),transparent 100%)`;
 }
 
 /* =====================================================================
    Sound
    ===================================================================== */
-const SOUND = [['voice', '🗣', 'Odens röst', 'Uppläsning av svar (kommer med röststeget)'], ['reply', '💬', 'Svar', 'Ljud när ett svar kommer'],
-  ['reminder', '⏰', 'Påminnelser', ''], ['mail', '✉', 'Mail-notiser', ''], ['fx', '✦', 'Effekter', 'Skott och pulser']];
+const SOUND = [['voice', '🗣', 'Röst', 'Uppläsning av svar och påminnelser'], ['reply', '💬', 'Svar', 'Ljud när ett svar kommer'],
+  ['reminder', '⏰', 'Påminnelser', ''], ['mail', '✉', 'Mail-notiser', ''], ['fx', '✦', 'Effekter', 'Stjärnskott och pulser']];
 let audio = null;
 function setupSound() {
-  SOUND[0][2] = `${oden()}s röst`;
+  SOUND[0][2] = `${orch()}${/s$/i.test(orch()) ? '' : 's'} röst`;   // Nexus röst, Odens röst
   $('soundBtn').onclick = (e) => togglePop('soundPop', e);
   $('soundPop').addEventListener('click', (e) => e.stopPropagation());
   $('masterMute').checked = !!state.settings.sound.master_mute;
@@ -535,10 +540,10 @@ function play(cat) {
   const v = (s.levels[cat] ?? 0) / 100; if (!v) return;
   try {
     audio = audio || new AudioContext(); const o = audio.createOscillator(), g = audio.createGain();
-    const f = { reply: 880, reminder: 990, mail: 660, fx: 1400, voice: 520 }[cat] || 800;
-    o.type = cat === 'fx' ? 'square' : 'sine'; o.frequency.setValueAtTime(f, audio.currentTime);
-    if (cat === 'fx') o.frequency.exponentialRampToValueAtTime(f * 0.3, audio.currentTime + 0.09);
-    g.gain.value = 0.06 * v; g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + (cat === 'fx' ? 0.1 : 0.35));
+    const f = { reply: 880, reminder: 990, mail: 660, fx: 1760, voice: 520 }[cat] || 800;
+    o.type = 'sine'; o.frequency.setValueAtTime(f, audio.currentTime);
+    if (cat === 'fx') o.frequency.exponentialRampToValueAtTime(f * 1.6, audio.currentTime + 0.18);   // rising shimmer
+    g.gain.value = (cat === 'fx' ? 0.035 : 0.06) * v; g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + (cat === 'fx' ? 0.3 : 0.35));
     o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.36);
   } catch { /* audio unavailable */ }
 }
@@ -574,6 +579,6 @@ window.ygg = { focusAsk: () => $('askInput').focus() };
 /* =====================================================================
    Animation loop
    ===================================================================== */
-function loop(t) { sparks.draw(); myth.draw(t, tree.level); tree.draw(t); requestAnimationFrame(loop); }
+function loop(t) { stars.draw(t); chart.draw(t, core.level); core.draw(t); requestAnimationFrame(loop); }
 
 boot();

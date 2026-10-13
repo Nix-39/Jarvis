@@ -209,11 +209,11 @@ class JarvisOrchestrator:
             channel=channel, text=preview[:2000],
         )
 
-        # Step 0: "Oden, lär dig: ..." / "vad har du lärt dig?" / "glöm lärdom 2" - fixed
+        # Step 0: "Nexus, lär dig: ..." / "vad har du lärt dig?" / "glöm lärdom 2" - fixed
         #         commands recognised in Python (never by the model) go to LessonsAgent.
         if "sports_agent" in self.agent_registry and SportsAgent.is_command(user_message):
             event_bus.publish(
-                "agent.selected", "orchestrator", "Resultatlistan → Oden",
+                "agent.selected", "orchestrator", "Resultatlistan → Nexus",
                 agent="sports_agent", category=None, reason="sports",
             )
             return self._run("sports_agent", user_message, channel)
@@ -224,7 +224,7 @@ class JarvisOrchestrator:
             or (LessonsAgent.is_scope_reply(user_message) and lessons.has_pending())
         ):
             event_bus.publish(
-                "agent.selected", "orchestrator", "Lärdom → Oden",
+                "agent.selected", "orchestrator", "Lärdom → Nexus",
                 agent="lessons_agent", category=None, reason="lesson",
             )
             return self._run("lessons_agent", user_message, channel)

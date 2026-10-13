@@ -7,7 +7,7 @@ Two swappable providers behind one small Game model:
     - TheSportsDB (free public key) for leagues ESPN does not cover, e.g. SHL.
 
 Which leagues are shown is a personal setting (data/ui/settings.json,
-`sports.leagues`) that the user changes by telling Oden ("lägg till Premier
+`sports.leagues`) that the user changes by telling Nexus ("lägg till Premier
 League i resultaten"). A background thread in Jarvis Core refreshes the chosen
 leagues (every 10 minutes, every minute while a game is live) and caches the
 team logos locally, so the interface never talks to the internet itself.
@@ -71,7 +71,7 @@ def _sdb(key: str, name: str, aliases: tuple[str, ...], league_id: int, group: s
     return League(key, name, aliases, group, sportsdb=league_id, web=web or f"https://www.thesportsdb.com/league/{league_id}")
 
 
-# Leagues Oden knows. Add more here - the key is what the settings store.
+# Leagues Nexus knows. Add more here - the key is what the settings store.
 CATALOG: dict[str, League] = {l.key: l for l in (
     # Sweden
     _espn("allsvenskan", "Allsvenskan", ("allsvenskan", "allsvenska"), "soccer/swe.1", "Sverige"),

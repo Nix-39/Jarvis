@@ -92,12 +92,12 @@ Key decisions:
 
 ## Desktop interface – Yggdrasil
 
-The visual face of the system: **Yggdrasil**, the world tree, with **Oden** as the orchestrator that hands out work.
+The visual face of the system: **Yggdrasil**, with **Nexus** as the orchestrator that hands out work. The look is a dark astronomy / sci-fi theme in black and magenta with the Montserrat typeface (bundled in `ui/assets/fonts`, SIL Open Font License; each family member keeps their own colour).
 
-- **Live brain map:** the seven agents sit above the tree. When Oden routes a question, three glowing bolts fly from the crown to the agent and back with the answer; memory lookups and reminders travel down the roots to the three wells: **Mimer** (memory), **Urd** (calendar) and **Hvergelmer** (security).
-- **Log and chat** on the right: everything Oden and the agents say and do, including questions from Telegram, with search (Ctrl+F) and history.
+- **Live brain map:** Nexus is a star in the middle with a slowly turning spiral disc and orbit rings; the seven agents sit above it as hexagons. When Nexus routes a question, three shooting stars arc from the core to the agent and back with the answer; memory lookups and reminders travel down to three planets: **Mimer** (memory), **Urd** (calendar) and **Hvergelmer** (security) – their names only appear when you hover over them. Around it a star-chart ring turns (hour marks, a scanner sweep that speeds up while the system works) and constellations fade in and out.
+- **Log and chat** on the right: everything Nexus and the agents say and do, including questions from Telegram, with search (Ctrl+F) and history.
 - **Family column:** one node per family member with their next seven days; click a booking for its full details. **Urd** opens the calendar: a day view with one column per family member ("Idag"), a week view and a month view with week numbers, person filters, and a detail card for every booking (referee matches show division, teams, venue, assembly time and the whole crew).
-- **Drop a document** anywhere on the window and Oden asks which folder it belongs in, saves it and learns it.
+- **Drop a document** anywhere on the window and Nexus asks which folder it belongs in, saves it and learns it.
 - **Always available:** own window with icon, system tray, starts hidden at login, global hotkey **Ctrl+Alt+J**. Background image, sound levels and names are personal settings in `data/ui/`.
 
 Security: the interface is a web page served by the core on `127.0.0.1` and shown in its own window (WebView2). The static files contain no data; every personal endpoint needs the API token, which only the desktop app hands to the page through its JavaScript bridge, so other programs and web pages on the computer cannot use it. Strict Content-Security-Policy, uploads validated by type, size and path (no path traversal), the hotkey uses Windows' `RegisterHotKey` (no keyboard hook), and external links open only for an allowlist of sites.
@@ -108,6 +108,16 @@ Security: the interface is a web page served by the core on `127.0.0.1` and show
 - **Scheduler** (`core/scheduler.py`) runs as a thread inside Jarvis Core. It checks for due reminders every 30 seconds and delivers reminders missed while the computer was off (marked as late).
 - **Notifications as channels** (`NotificationService`): Windows toast and Telegram today, a future Jarvis mobile app plugs in as another channel. Notification text is passed to PowerShell via environment variables and XML-escaped, never interpolated into a command.
 - **Categories** live in `data/reminder_categories.txt` (private). Reminders store a reserved `calendar_event_id` for the upcoming Google Calendar integration.
+
+## Voice – talk to Nexus
+
+Say **"Hej Nexus …"** (or just "Nexus, …"), click the microphone in the chat field or press **Ctrl+Alt+Space**, and Nexus answers out loud. Everything runs on the computer:
+
+- **Listening:** [KB-Whisper](https://huggingface.co/KBLab/kb-whisper-large) from the National Library of Sweden (about half the error rate of OpenAI's Whisper on Swedish) via faster-whisper – the large model on the GPU, a smaller one on the CPU if CUDA is not available (checked in a separate process first, so a broken CUDA setup cannot crash the core).
+- **"Hej Nexus":** the wake phrase follows the orchestrator name in the settings. The microphone listens when the setting is on; a simple energy detector cuts out speech and a small model on the CPU checks only the first seconds of each piece for the wake phrase. Audio stays in memory and is never stored. After an answer Nexus listens a few seconds for a follow-up ("ja", "nej") without the wake phrase.
+- **Speaking:** [Piper](https://github.com/OHF-Voice/piper1-gpl) with a Swedish voice (Lisa – default, Alma, or NST as a male voice), slightly calmer than Piper's defaults with short pauses between sentences, played by the core so Nexus can talk with the window hidden. Volume, mute, what is read aloud and quiet hours are set in the sound menu; long answers are cut after a few sentences.
+- **Telegram voice messages** are transcribed locally the same way and answered as text.
+- Models download once into `models/` (not in git, not in the backup).
 
 ## Weather
 
@@ -121,7 +131,7 @@ The weather at home in the header (icon, temperature and a badge such as "regn 1
 A results bar along the bottom of Yggdrasil: each league's latest round of results and its next games, 2–4 at a time, with a LIVE badge while a game is on. When a league has been shown it moves on to the next. The league menu (bottom left, scrollable) jumps to a league and adds or removes leagues; rotation continues afterwards. Click the bar for all games with team logos; click a game to open it on ESPN (or shl.se).
 
 - **Sources:** ESPN's public scoreboard JSON for most leagues (Allsvenskan, Premier League, Champions League, NHL, NBA ...; game days are read from the league calendar since the endpoint has no date ranges) and TheSportsDB's free API for SHL, HockeyAllsvenskan, SDHL, Damallsvenskan, Liiga, KHL and more. 38 leagues are built in, up to 30 can be shown. Both sit behind one `Game` model, so a provider can be swapped without touching the interface.
-- **Choose leagues by talking to Oden:** "lägg till Premier League i resultaten", "ta bort NHL från resultaten", "vilka ligor finns?". Recognised by fixed patterns (no model), stored in `data/ui/settings.json`. Default: SHL and Allsvenskan.
+- **Choose leagues by talking to Nexus:** "lägg till Premier League i resultaten", "ta bort NHL från resultaten", "vilka ligor finns?". Recognised by fixed patterns (no model), stored in `data/ui/settings.json`. Default: SHL and Allsvenskan.
 - **Privacy and safety:** only Jarvis Core talks to the internet – fixed hosts, timeouts and size limits; it refreshes every 10 minutes (every minute while a game is live) and caches the team logos locally (checked by magic bytes), so the interface itself makes no external requests.
 
 ## Encrypted backup
@@ -140,19 +150,19 @@ Every night (03:00, or as soon as the computer is on after a missed night) Jarvi
 
 Keep a copy of the passphrase outside the computer – without it no backup can be opened.
 
-## Teaching Oden – lessons
+## Teaching Nexus – lessons
 
-You can teach Oden in plain Swedish instead of changing code:
+You can teach Nexus in plain Swedish instead of changing code:
 
 ```
-Oden, lär dig: när jag säger match menar jag ett domaruppdrag   -> Oden shows the lesson and where it applies
+Nexus, lär dig: när jag säger match menar jag ett domaruppdrag  -> Nexus shows the lesson and where it applies
 bara kalendern                                                  -> limit it to the calendar ("gäller alla" for everywhere)
 ja                                                              -> saved
 vad har du lärt dig?                                            -> numbered list
 glöm lärdom 2                                                   -> removed after "ja"
 ```
 
-- Lessons are stored one per line in `data/lessons.md` (private) and can be edited by hand; `[kalender]`, `[oden]`, `[business]` ... limits a lesson to one agent (`oden` = how requests are routed), no scope means all agents.
+- Lessons are stored one per line in `data/lessons.md` (private) and can be edited by hand; `[kalender]`, `[nexus]`, `[business]` ... limits a lesson to one agent (`nexus` = how requests are routed; old `[oden]` lines still work), no scope means all agents.
 - They are added to the prompts of the agents they apply to, below the system instructions. Nothing changes in the code.
 - The commands are recognised by fixed patterns in Python (`LessonsAgent`, no language model), and everything is confirmed first, so web pages, documents or the model itself can never add lessons.
 
@@ -229,8 +239,9 @@ jarvis/
 │   ├── backup_service.py   # Encrypted nightly backup of data/ (AES-256-GCM)
 │   ├── sports_service.py   # Sports results (ESPN + TheSportsDB), logo cache
 │   ├── weather_service.py  # Weather from SMHI open data (SNOW1gv1)
+│   ├── speech_service.py   # Voice: KB-Whisper (listen), Piper (speak), "Hej Nexus"
 │   ├── calendar_service.py # Family calendar Urd (SQLite: bookings, shifts, matches)
-│   ├── lessons_service.py  # The user's lessons for Oden (data/lessons.md)
+│   ├── lessons_service.py  # The user's lessons for Nexus (data/lessons.md)
 │   ├── notification_service.py  # Windows toast + Telegram channels
 │   ├── reminder_service.py # Reminders (SQLite, recurrence)
 │   ├── system_monitor.py   # GPU load / VRAM for the interface
@@ -354,14 +365,14 @@ New, changed and deleted files are picked up automatically. Useful commands:
 | Telegram two-way chat (mobile access) | ✅ Implemented |
 | Desktop interface "Yggdrasil" (brain map, log/chat, family column, tray, hotkey) | ✅ Verified |
 | Family calendar Urd (bookings, work shifts, referee matches, day/week/month views) | ✅ Implemented |
-| Lessons – teach Oden in plain Swedish (data/lessons.md) | ✅ Implemented |
+| Lessons – teach Nexus in plain Swedish (data/lessons.md) | ✅ Implemented |
 | Encrypted nightly backup of data/ (AES-256-GCM, verified, restore CLI) | ✅ Implemented |
-| Sports results ticker (ESPN + TheSportsDB, leagues chosen via Oden) | ✅ Implemented |
+| Sports results ticker (ESPN + TheSportsDB, leagues chosen via Nexus) | ✅ Implemented |
 | Weather (SMHI SNOW1gv1: now, rain alert, hours, 5 days) | ✅ Implemented |
 | Hvergelmer security checks, Gmail, Slack, morning briefing | 📋 Planned |
 | Google Calendar (family calendars, categories) | 📋 Planned |
 | Own Jarvis mobile app (API + Tailscale) | 📋 Planned |
-| Voice (local speech-to-text, text-to-speech, "Hej Jarvis" wake word) | 📋 Planned |
+| Voice: "Hej Nexus", push to talk, KB-Whisper + Piper, Telegram voice messages | ✅ Implemented |
 | Social media analytics | 📋 Planned |
 
 ## Design principles

@@ -5,7 +5,7 @@ A thin window around the interface that the core serves on 127.0.0.1:
     - own window (WebView2 / Edge engine) with the Yggdrasil icon,
     - icon in the system tray; closing the window only hides it,
     - global hotkey (default Ctrl+Alt+J) that brings the window up with the
-      cursor in "Fråga Oden…",
+      cursor in "Fråga Nexus…",
     - starts hidden at login (--hidden), opened from the desktop shortcut.
 
 Security:
@@ -172,16 +172,37 @@ class DesktopApp:
         import ctypes
         from ctypes import wintypes
 
-        mods, vk = parse_hotkey(Config.DESKTOP_HOTKEY)
         user32 = ctypes.windll.user32
-        if not user32.RegisterHotKey(None, 1, mods | 0x4000, vk):   # 0x4000 = MOD_NOREPEAT
-            logger.warning("Hotkey %s is used by another program.", Config.DESKTOP_HOTKEY)
+        registered = 0
+        for hotkey_id, text in ((1, Config.DESKTOP_HOTKEY), (2, Config.VOICE_HOTKEY if Config.VOICE_ENABLED else "")):
+            if not text:
+                continue
+            try:
+                mods, vk = parse_hotkey(text)
+            except ValueError as exc:
+                logger.warning("%s", exc)
+                continue
+            if user32.RegisterHotKey(None, hotkey_id, mods | 0x4000, vk):   # 0x4000 = MOD_NOREPEAT
+                registered += 1
+                logger.info("Global hotkey %s registered.", text)
+            else:
+                logger.warning("Hotkey %s is used by another program.", text)
+        if not registered:
             return
-        logger.info("Global hotkey %s registered.", Config.DESKTOP_HOTKEY)
         msg = wintypes.MSG()
         while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
             if msg.message == 0x0312:   # WM_HOTKEY
-                self.show()
+                if msg.wParam == 2:
+                    threading.Thread(target=self._push_to_talk, daemon=True).start()
+                else:
+                    self.show()
+
+    def _push_to_talk(self) -> None:
+        """Voice hotkey: ask the core to listen for one command (works with the window hidden)."""
+        try:
+            httpx.post(f"{BASE_URL}/voice/listen", headers={"Authorization": f"Bearer {Bridge().get_token()}"}, timeout=5)
+        except Exception as exc:
+            logger.warning("Push to talk failed: %s", exc)
 
 
 def parse_hotkey(text: str) -> tuple[int, int]:
@@ -191,6 +212,8 @@ def parse_hotkey(text: str) -> tuple[int, int]:
     for part in text.lower().replace(" ", "").split("+"):
         if part in mod_bits:
             mods |= mod_bits[part]
+        elif part == "space":
+            vk = 0x20
         elif len(part) == 1 and part.isalnum():
             vk = ord(part.upper())
         elif part.startswith("f") and part[1:].isdigit():

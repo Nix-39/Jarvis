@@ -41,6 +41,8 @@ logger = get_logger(__name__)
 API_BASE = "https://api.telegram.org"
 POLL_TIMEOUT_SECONDS = 30            # how long Telegram holds a getUpdates request open
 MAX_MESSAGE_CHARS = 4000             # Telegram's hard limit is 4096
+MAX_VOICE_SECONDS = 180             # voice messages longer than this are not transcribed
+MAX_VOICE_BYTES = 8 * 1024 * 1024
 OFFSET_STATE_KEY = "telegram.offset"
 
 HELP_TEXT = (
@@ -51,7 +53,7 @@ HELP_TEXT = (
     "/status - hur Jarvis mår just nu\n"
     "/hjalp - den här texten"
 )
-NON_TEXT_REPLY = "Jag kan bara läsa text än så länge - skriv gärna din fråga."
+NON_TEXT_REPLY = "Jag kan bara läsa text och röstmeddelanden - skriv eller prata in din fråga."
 
 
 class TelegramError(Exception):
@@ -73,12 +75,14 @@ class TelegramService:
         on_status: Callable[[], str],
         memory_service: Any = None,
         client: Optional[httpx.Client] = None,
+        on_voice: Optional[Callable[[bytes], str]] = None,
         max_message_age_minutes: int = Config.TELEGRAM_MAX_MESSAGE_AGE_MINUTES,
     ) -> None:
         """
         :param on_message: Called with the owner's text; returns Jarvis' answer.
         :param on_status:  Returns a short status text for /status.
         :param memory_service: Optional - persists the update offset across restarts.
+        :param on_voice: Optional - transcribes a voice message (audio bytes) to text, locally.
         """
         if not bot_token:
             raise ValueError("A Telegram bot token is required.")
@@ -86,6 +90,7 @@ class TelegramService:
         self._chat_id = str(chat_id).strip()
         self._on_message = on_message
         self._on_status = on_status
+        self._on_voice = on_voice
         self._memory = memory_service
         self._client = client or httpx.Client(timeout=httpx.Timeout(15, read=POLL_TIMEOUT_SECONDS + 15))
         self._max_age_seconds = max_message_age_minutes * 60
@@ -212,6 +217,11 @@ class TelegramService:
             return
 
         text = message.get("text")
+        voice = message.get("voice") or message.get("audio")
+        if isinstance(voice, dict) and self._on_voice is not None and not text:
+            text = self._transcribe_voice(voice)
+            if text is None:
+                return
         if not isinstance(text, str) or not text.strip():
             self.send_text(NON_TEXT_REPLY)
             return
@@ -232,6 +242,31 @@ class TelegramService:
         finally:
             done.set()
         self.send_text(answer or "(tomt svar)")
+
+    def _transcribe_voice(self, voice: dict[str, Any]) -> Optional[str]:
+        """Download a voice message and turn it into text on this computer. None = already answered."""
+        if int(voice.get("duration") or 0) > MAX_VOICE_SECONDS or int(voice.get("file_size") or 0) > MAX_VOICE_BYTES:
+            self.send_text(f"Röstmeddelandet är för långt – max {MAX_VOICE_SECONDS // 60} minuter.")
+            return None
+        try:
+            info = self._call("getFile", {"file_id": str(voice.get("file_id", ""))})
+            path = str((info or {}).get("file_path") or "")
+            if not path or ".." in path:
+                raise ValueError("no file path")
+            # The URL contains the token: never log it.
+            response = self._client.get(f"{API_BASE}/file/bot{self._token}/{path}")
+            if response.status_code != 200 or len(response.content) > MAX_VOICE_BYTES:
+                raise ValueError(f"download failed ({response.status_code})")
+            text = self._on_voice(response.content)
+        except Exception as exc:
+            logger.error("Could not transcribe a Telegram voice message: %s", type(exc).__name__)
+            self.send_text("Jag kunde inte lyssna på röstmeddelandet just nu. Skriv gärna i stället.")
+            return None
+        if not text:
+            self.send_text("Jag hörde inget i röstmeddelandet.")
+            return None
+        self.send_text(f"🎙 Jag hörde: {text}")
+        return text
 
     def _handle_command(self, text: str) -> None:
         command = text.split()[0].split("@")[0].lower()

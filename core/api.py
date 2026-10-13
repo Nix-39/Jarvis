@@ -29,7 +29,7 @@ everything personal goes through the token-protected endpoints below):
     GET|PATCH /settings                   display names, people, background, sound
     GET  /documents/folders, PUT /documents?folder=&name=   (raw file body)
     GET|PUT|DELETE /assets/background, GET|PUT /people/{id}/photo   (raw image body)
-    GET  /weather (SMHI, cached), GET /backup/status, POST /backup/run, GET /sports, GET /sports/catalog, PUT /sports/leagues, GET /sports/logo/{file} (public)
+    GET  /voice/status, POST /voice/listen|stop|test, GET /weather (SMHI, cached), GET /backup/status, POST /backup/run, GET /sports, GET /sports/catalog, PUT /sports/leagues, GET /sports/logo/{file} (public)
     GET  /calendar/events?start=&end=, DELETE /calendar/events/{id}[?occurrence=YYYY-MM-DD], DELETE /reminders/{id}
 """
 
@@ -297,6 +297,37 @@ def _add_desktop_routes(app: FastAPI, core: "JarvisCore", authorized: list) -> N
         if hi - lo > timedelta(days=400):
             raise HTTPException(status_code=400, detail="För stort intervall.")
         return [e.to_dict() for e in core.calendar.between(lo, hi)]
+
+    @app.get("/voice/status", dependencies=authorized)
+    def voice_status() -> dict[str, Any]:
+        return core.speech.status() if core.speech is not None else {"enabled": False}
+
+    @app.post("/voice/listen", dependencies=authorized)
+    def voice_listen() -> dict[str, Any]:
+        """Push to talk: Nexus listens for one command (mic button / voice hotkey)."""
+        if core.speech is None:
+            raise HTTPException(status_code=409, detail="Rösten är avstängd (VOICE_ENABLED=false).")
+        from services.speech_service import SpeechError
+
+        try:
+            core.speech.listen()
+        except SpeechError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"listening": True}
+
+    @app.post("/voice/stop", dependencies=authorized)
+    def voice_stop() -> dict[str, Any]:
+        if core.speech is not None:
+            core.speech.cancel()
+        return {"ok": True}
+
+    @app.post("/voice/test", dependencies=authorized)
+    def voice_test() -> dict[str, Any]:
+        """Let Nexus say a short sample sentence with the chosen voice."""
+        if core.speech is None:
+            raise HTTPException(status_code=409, detail="Rösten är avstängd (VOICE_ENABLED=false).")
+        core.speech.say(f"Hej! Jag är {core.ui_settings.get().orchestrator_name}. Så här låter jag.", "test")
+        return {"ok": True}
 
     @app.get("/weather", dependencies=authorized)
     def weather() -> dict[str, Any]:

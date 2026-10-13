@@ -92,9 +92,18 @@ class Weather(BaseModel):
     lon: float = Field(12.08, ge=4.0, le=32.0)
 
 
+class Voice(BaseModel):
+    wake_word: bool = True                                  # listen for "Hej <orchestrator name>"
+    voice: str = Field("lisa", pattern=r"^(alma|lisa|nst)$")  # Piper voice
+    speak: str = Field("always", pattern=r"^(always|voice|important)$")
+    rate: float = Field(1.0, ge=0.6, le=1.6)
+    quiet_from: str = Field("22:00", pattern=r"^\d{2}:\d{2}$")   # no unprompted speech at night
+    quiet_to: str = Field("07:00", pattern=r"^\d{2}:\d{2}$")
+
+
 class UiSettings(BaseModel):
     system_name: str = Field("Yggdrasil", min_length=1, max_length=30)
-    orchestrator_name: str = Field("Oden", min_length=1, max_length=30)
+    orchestrator_name: str = Field("Nexus", min_length=1, max_length=30)
     planner_name: str = Field("Planering", min_length=1, max_length=30)
     agent_order: list[str] = Field(default_factory=lambda: list(DEFAULT_AGENTS))
     agent_names: dict[str, str] = Field(default_factory=dict)   # overrides, e.g. Norse names
@@ -109,7 +118,9 @@ class UiSettings(BaseModel):
     sound: Sound = Field(default_factory=Sound)
     sports: Sports = Field(default_factory=Sports)
     weather: Weather = Field(default_factory=Weather)
+    voice: Voice = Field(default_factory=Voice)
     show_steps: bool = True
+    theme: str = Field("cosmos", pattern=r"^cosmos$")          # visual theme (cosmos = Nexus, stars, blue/cyan)
 
     @field_validator("people")
     @classmethod
@@ -197,10 +208,25 @@ class UiSettingsService:
         if not self._path.exists():
             return UiSettings()
         try:
-            return UiSettings.model_validate(json.loads(self._path.read_text(encoding="utf-8")))
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+            settings = UiSettings.model_validate(_migrate(raw))
+            if "theme" not in raw:                 # settings from before the cosmos theme: save the migrated version
+                self._path.write_text(json.dumps(settings.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+            return settings
         except (ValidationError, ValueError) as exc:
             logger.warning("Invalid %s, using defaults: %s", self._path.name, str(exc)[:300])
             return UiSettings()
+
+
+def _migrate(raw: dict[str, Any]) -> dict[str, Any]:
+    """Settings saved before the cosmos theme (Norse look, Oden with a male voice) -> Nexus with a female voice."""
+    if isinstance(raw, dict) and "theme" not in raw:
+        if raw.get("orchestrator_name") in (None, "Oden"):
+            raw["orchestrator_name"] = "Nexus"
+        voice = raw.get("voice")
+        if isinstance(voice, dict) and voice.get("voice") in (None, "nst"):
+            voice["voice"] = "lisa"
+    return raw
 
 
 def image_kind(data: bytes) -> Optional[tuple[str, str]]:

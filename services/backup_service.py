@@ -58,7 +58,7 @@ CHUNK_BYTES = 1 << 20
 SCRYPT_N_LOG2, SCRYPT_R, SCRYPT_P = 16, 8, 1          # ~64 MB memory, a fraction of a second
 MIN_PASSPHRASE = 12
 NAME_RE = re.compile(r"^yggdrasil-(\d{8}-\d{6})\.ygg$")
-EXCLUDED_DIRS = {"vector_store"}
+EXCLUDED_DIRS = {"vector_store", "cache"}   # both are rebuilt automatically
 EXCLUDED_SUFFIXES = ("-wal", "-shm", "-journal", ".tmp", ".part")
 RETRY_AFTER_FAILURE = timedelta(hours=1)
 NOTIFY_INTERVAL = timedelta(hours=12)

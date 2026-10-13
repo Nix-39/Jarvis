@@ -1,13 +1,13 @@
 """
-LessonsService - the user's own lessons for Oden ("lärdomar").
+LessonsService - the user's own lessons for Nexus ("lärdomar").
 
-The user teaches Oden in plain Swedish ("Oden, lär dig: när jag säger match
+The user teaches Nexus in plain Swedish ("Nexus, lär dig: när jag säger match
 menar jag domaruppdrag"). Each lesson is stored as one line in a private text
 file, `data/lessons.md`, which the user can also open and edit by hand:
 
     - [alla] Svara kort och på svenska.
     - [kalender] "Hos mig" betyder hemma hos hela familjen.
-    - [oden] Frågor om domaruppdrag hör till kalendern.
+    - [nexus] Frågor om domaruppdrag hör till kalendern.
 
 A scope in brackets limits where a lesson is used; no scope means everywhere.
 Lessons are injected as text into the prompts of the agents they apply to -
@@ -41,7 +41,7 @@ MAX_BLOCK_CHARS = 4000
 # Scope (as written by the user) -> agent ids it applies to. "alla" = every agent except the router.
 SCOPES: dict[str, tuple[str, ...]] = {
     "alla": (),
-    "oden": ("router",),
+    "nexus": ("router",),
     "kalender": ("calendar_agent",),
     "påminnelser": ("reminder_agent",),
     "allmänt": ("general_agent",),
@@ -53,15 +53,15 @@ SCOPES: dict[str, tuple[str, ...]] = {
     "content": ("contentcreator_agent",),
 }
 SCOPE_LABELS = {
-    "alla": "alla agenter", "oden": "Oden när han väljer agent", "kalender": "kalendern", "påminnelser": "påminnelser",
+    "alla": "alla agenter", "nexus": "Nexus när hon väljer agent", "kalender": "kalendern", "påminnelser": "påminnelser",
     "allmänt": "Allmänt", "utbildning": "Utbildning", "karriär": "Karriär", "business": "Business", "webb": "Webbdesign",
     "sociala medier": "Sociala medier", "content": "Content",
 }
-HEADER = """# Odens lärdomar
+HEADER = """# Nexus lärdomar
 # En lärdom per rad som börjar med "- ". [område] i början gör att den bara gäller där.
-# Områden: alla, oden (val av agent), kalender, påminnelser, allmänt, utbildning, karriär,
+# Områden: alla, nexus (val av agent), kalender, påminnelser, allmänt, utbildning, karriär,
 #          business, webb, sociala medier, content
-# Du kan ändra och ta bort rader här direkt - Oden läser filen igen när den ändras.
+# Du kan ändra och ta bort rader här direkt - Nexus läser filen igen när den ändras.
 """
 LINE_RE = re.compile(r"^\s*-\s+(?:\[([^\]]{1,30})\]\s*)?(.+?)\s*$")
 
@@ -166,6 +166,7 @@ class LessonBook:
             if not found or line.lstrip().startswith("#"):
                 continue
             scope = (found.group(1) or "alla").strip().lower()
+            scope = "nexus" if scope == "oden" else scope          # lessons written before the rename
             text = clean_text(found.group(2))
             if text and len(lessons) < MAX_LESSONS:
                 lessons.append(Lesson(len(lessons) + 1, scope if scope in SCOPES else "alla", text))

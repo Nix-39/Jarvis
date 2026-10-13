@@ -1,7 +1,7 @@
 """
 SportsAgent - lets the user choose which leagues the sports ticker shows.
 
-    "Oden, lägg till Premier League i resultaten"
+    "Nexus, lägg till Premier League i resultaten"
     "ta bort NHL från resultaten"
     "vilka ligor finns?" / "vilka ligor visar du?"
 
@@ -22,11 +22,11 @@ from services.sports_service import CATALOG, MAX_LEAGUES, find_league
 
 logger = get_logger(__name__)
 
-_ODEN = r"^\s*(?:hej\s+)?(?:oden[\s,:!.-]+)?"
+_NAME = r"^\s*(?:hej\s+)?(?:(?:nexus|oden)[\s,:!.-]+)?"
 _RESULTS = r"(?:sport)?(?:resultat(?:en|listan|raden|baren)?|tickern)"
-ADD_RE = re.compile(_ODEN + r"(?:lägg till|lägg in|visa)\s+(?P<name>.+?)\s+(?:i|på|till|bland)\s+" + _RESULTS + r"\s*[.!]*\s*$", re.IGNORECASE)
-REMOVE_RE = re.compile(_ODEN + r"(?:ta bort|sluta visa|dölj|plocka bort)\s+(?P<name>.+?)\s+(?:från|ur|i|bland)\s+" + _RESULTS + r"\s*[.!]*\s*$", re.IGNORECASE)
-LIST_RE = re.compile(_ODEN + r"(?:vilka ligor\b.*|(?:visa|lista) (?:alla )?ligor.*)$", re.IGNORECASE)
+ADD_RE = re.compile(_NAME + r"(?:lägg till|lägg in|visa)\s+(?P<name>.+?)\s+(?:i|på|till|bland)\s+" + _RESULTS + r"\s*[.!]*\s*$", re.IGNORECASE)
+REMOVE_RE = re.compile(_NAME + r"(?:ta bort|sluta visa|dölj|plocka bort)\s+(?P<name>.+?)\s+(?:från|ur|i|bland)\s+" + _RESULTS + r"\s*[.!]*\s*$", re.IGNORECASE)
+LIST_RE = re.compile(_NAME + r"(?:vilka ligor\b.*|(?:visa|lista) (?:alla )?ligor.*)$", re.IGNORECASE)
 
 
 class SportsAgent:

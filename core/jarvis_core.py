@@ -48,6 +48,20 @@ from core.single_instance import acquire_lock  # noqa: E402
 logger = get_logger("core.jarvis_core")
 
 
+class SpeechChannel:
+    """Notification channel that reads reminders aloud (SpeechService respects quiet hours and volume)."""
+
+    name = "voice"
+
+    def __init__(self, speech: Any) -> None:
+        self.speech = speech
+
+    def send(self, title: str, message: str) -> bool:
+        text = message.split("\n")[0]
+        self.speech.say(f"Påminnelse: {text}", "announce")
+        return False   # never counts as "delivered" on its own - the toast/Telegram decide that
+
+
 class CoreNotReady(RuntimeError):
     """Raised when a question arrives before the Orchestrator has started."""
 
@@ -67,6 +81,7 @@ class JarvisCore:
         from services.reminder_service import ReminderService
         from services.sports_service import SportsService
         from services.weather_service import WeatherService
+        from services.speech_service import SpeechService
         from services.system_monitor import SystemMonitor
         from services.ui_settings import UiSettingsService
 
@@ -80,6 +95,10 @@ class JarvisCore:
         self.backup = BackupService(notify=self.notifications.notify)
         self.sports = SportsService(lambda: self.ui_settings.get().sports.leagues)
         self.weather = WeatherService(lambda: self.ui_settings.get().weather.model_dump())
+        self.speech = SpeechService(lambda: self.ui_settings.get().model_dump(), on_command=self._voice_command) \
+            if Config.VOICE_ENABLED else None
+        if self.speech is not None:   # reminders are also read aloud (outside quiet hours)
+            self.notifications.channels.append(SpeechChannel(self.speech))
         self.orchestrator: Any = None
         self.telegram: Any = None
         self.ready = False
@@ -99,6 +118,8 @@ class JarvisCore:
         self._start_thread("backup", self.backup.run_forever, self._stop)
         self._start_thread("sports", self.sports.run_forever, self._stop)
         self._start_thread("weather", self.weather.run_forever, self._stop)
+        if self.speech is not None:
+            self._start_thread("voice", self.speech.run_forever, self._stop)
 
     def start_brain(self, orchestrator: Any = None) -> None:
         """Wait for Ollama, start the Orchestrator and the Telegram bot. Raises on fatal errors."""
@@ -126,6 +147,7 @@ class JarvisCore:
                 on_message=lambda text: self.ask(text, channel="telegram").final_response,
                 on_status=self.status_text,
                 memory_service=self.orchestrator.memory_service,
+                on_voice=self.speech.transcribe_bytes if self.speech is not None else None,
             )
             self._start_thread("telegram", self.telegram.run, self._stop)
         else:
@@ -170,9 +192,20 @@ class JarvisCore:
             event_bus.publish("query.queued", "core", f"Fråga via {channel} väntar på sin tur", channel=channel)
             self._query_lock.acquire()
         try:
-            return self.orchestrator.process_query(message, channel=channel)
+            result = self.orchestrator.process_query(message, channel=channel)
         finally:
             self._query_lock.release()
+        # Nexus answers out loud at the computer (not for Telegram - you are away then).
+        if self.speech is not None and channel in ("voice", "ui", "terminal") and getattr(result, "final_response", ""):
+            self.speech.say(result.final_response, "reply_voice" if channel == "voice" else "reply")
+        return result
+
+    def _voice_command(self, text: str) -> None:
+        if not self.ready:
+            if self.speech is not None:
+                self.speech.say("Jag startar fortfarande, vänta en liten stund.", "reply_voice")
+            return
+        self.ask(text, channel="voice")
 
     # ------------------------------------------------------------------
     # Status
@@ -208,6 +241,7 @@ class JarvisCore:
             "telegram": telegram,
             "scheduler": self._thread_alive("scheduler"),
             "backup": self.backup.status(),
+            "voice": self.speech.status() if self.speech is not None else {"enabled": False},
             "busy": self._query_lock.locked(),
             "upcoming_reminders": [
                 {"id": r.id, "text": r.text, "due": format_datetime_sv(r.due_at), "category": r.category}

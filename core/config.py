@@ -96,6 +96,17 @@ class Config:
     BACKUP_KEEP = int(os.getenv("BACKUP_KEEP", "14"))     # number of backups to keep
 
     # ------------------------------------------------------
+    # Voice (SpeechService, runs inside Jarvis Core - everything local)
+    # ------------------------------------------------------
+    VOICE_ENABLED = os.getenv("VOICE_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+    VOICE_STT_MODEL = os.getenv("VOICE_STT_MODEL", "KBLab/kb-whisper-large")        # on the GPU
+    VOICE_STT_CPU_MODEL = os.getenv("VOICE_STT_CPU_MODEL", "KBLab/kb-whisper-small")  # if the GPU cannot be used
+    VOICE_WAKE_MODEL = os.getenv("VOICE_WAKE_MODEL", "KBLab/kb-whisper-base")       # small, CPU: listens for "Hej Nexus"
+    VOICE_DEVICE = os.getenv("VOICE_DEVICE", "auto").strip().lower()               # auto | cuda | cpu
+    VOICE_INPUT_DEVICE = os.getenv("VOICE_INPUT_DEVICE", "").strip()               # microphone name/number, empty = default
+    VOICE_HOTKEY = os.getenv("VOICE_HOTKEY", "ctrl+alt+space")                      # push to talk
+
+    # ------------------------------------------------------
     # Execution limits
     # ------------------------------------------------------
     # Max seconds one agent step may run before the Planner retries it.
