@@ -34,7 +34,7 @@ if sys.stderr is None:
 import logging  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
-from datetime import datetime, timezone  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
 from typing import Any, Optional  # noqa: E402
 
 import httpx  # noqa: E402
@@ -46,6 +46,31 @@ from core.logger import get_logger  # noqa: E402
 from core.single_instance import acquire_lock  # noqa: E402
 
 logger = get_logger("core.jarvis_core")
+
+
+class SportsControl:
+    """What SportsAgent may change: ticker leagues, favourite teams and match mode."""
+
+    def __init__(self, core: "JarvisCore") -> None:
+        self.core = core
+
+    def leagues(self) -> list[str]:
+        return list(self.core.ui_settings.get().sports.leagues)
+
+    def set_leagues(self, leagues: list[str]) -> None:
+        self.core.set_sports_leagues(leagues)
+
+    def favorites(self) -> list[dict[str, str]]:
+        return self.core.sports_favorites()
+
+    def set_favorites(self, favorites: list[dict[str, str]]) -> None:
+        self.core.set_sports_favorites(favorites)
+
+    def set_pause(self, on: bool) -> str:
+        return self.core.set_sports_pause(on)
+
+    def find_team_leagues(self, team: str) -> list[str]:
+        return self.core.sports.team_leagues(team)
 
 
 class SpeechChannel:
@@ -79,6 +104,7 @@ class JarvisCore:
         from services.backup_service import BackupService
         from services.calendar_service import CalendarService
         from services.reminder_service import ReminderService
+        from services.news_service import NewsService
         from services.sports_service import SportsService
         from services.weather_service import WeatherService
         from services.speech_service import SpeechService
@@ -93,7 +119,9 @@ class JarvisCore:
         self.calendar = CalendarService()
         self.system_monitor = SystemMonitor()
         self.backup = BackupService(notify=self.notifications.notify)
-        self.sports = SportsService(lambda: self.ui_settings.get().sports.leagues)
+        self.sports = SportsService(lambda: self.ui_settings.get().sports.leagues,
+                                    favorites_provider=self.sports_favorites, paused_provider=self.sports_paused)
+        self.news = NewsService(self.sports_favorites, paused_provider=self.sports_paused)
         self.weather = WeatherService(lambda: self.ui_settings.get().weather.model_dump())
         self.speech = SpeechService(lambda: self.ui_settings.get().model_dump(), on_command=self._voice_command) \
             if Config.VOICE_ENABLED else None
@@ -117,6 +145,7 @@ class JarvisCore:
         self._start_thread("scheduler", self.scheduler.run_forever, self._stop)
         self._start_thread("backup", self.backup.run_forever, self._stop)
         self._start_thread("sports", self.sports.run_forever, self._stop)
+        self._start_thread("news", self.news.run_forever, self._stop)
         self._start_thread("weather", self.weather.run_forever, self._stop)
         if self.speech is not None:
             self._start_thread("voice", self.speech.run_forever, self._stop)
@@ -134,7 +163,7 @@ class JarvisCore:
                 reminder_service=self.reminders,
                 calendar_service=self.calendar,
                 people_provider=self.people,
-                sports_leagues=(lambda: self.ui_settings.get().sports.leagues, self.set_sports_leagues),
+                sports_control=SportsControl(self),
             )
         self.orchestrator = orchestrator
 
@@ -164,6 +193,42 @@ class JarvisCore:
         self.ui_settings.update({"sports": {"leagues": leagues}})
         event_bus.publish("sports.leagues", "sports", "Resultatlistan ändrad", leagues=leagues)
         self.sports.wake()
+
+    def sports_favorites(self) -> list[dict[str, str]]:
+        return [f.model_dump() for f in self.ui_settings.get().sports.favorites]
+
+    def set_sports_favorites(self, favorites: list[dict[str, str]]) -> None:
+        """Change the favourite teams (SportsAgent or the star in the sports panel)."""
+        self.ui_settings.update({"sports": {"favorites": favorites}})
+        event_bus.publish("sports.favorites", "sports", "Favoritlagen ändrade", count=len(favorites))
+        self.sports.wake()
+        self.news.wake()
+
+    def sports_paused(self) -> bool:
+        """Match mode: no sports/news notifications and live scores hidden until paused_until (local time)."""
+        until = self.ui_settings.get().sports.paused_until
+        if not until:
+            return False
+        try:
+            if datetime.now() < datetime.fromisoformat(until):
+                return True
+        except ValueError:
+            pass
+        self.ui_settings.update({"sports": {"paused_until": ""}})       # expired: switch it off again
+        event_bus.publish("sports.pause", "sports", "Matchläget är av", paused=False)
+        return False
+
+    def set_sports_pause(self, on: bool) -> str:
+        """Match mode on (until 06:00 next morning) or off. Returns when it ends, e.g. "imorgon 06:00"."""
+        now = datetime.now()
+        until = now.replace(hour=6, minute=0, second=0, microsecond=0)
+        if until <= now:
+            until += timedelta(days=1)
+        self.ui_settings.update({"sports": {"paused_until": until.isoformat(timespec="minutes") if on else ""}})
+        event_bus.publish("sports.pause", "sports", "Matchläge på" if on else "Matchläget är av", paused=on,
+                          until=until.isoformat(timespec="minutes") if on else "")
+        self.sports.wake()
+        return f"{'imorgon' if until.date() > now.date() else 'idag'} {until:%H:%M}"
 
     def people(self) -> list[dict[str, str]]:
         """Family members (id, name, full name) for the calendar agent."""

@@ -29,7 +29,7 @@ everything personal goes through the token-protected endpoints below):
     GET|PATCH /settings                   display names, people, background, sound
     GET  /documents/folders, PUT /documents?folder=&name=   (raw file body)
     GET|PUT|DELETE /assets/background, GET|PUT /people/{id}/photo   (raw image body)
-    GET  /voice/status, POST /voice/listen|stop|test, GET /weather (SMHI, cached), GET /backup/status, POST /backup/run, GET /sports, GET /sports/catalog, PUT /sports/leagues, GET /sports/logo/{file} (public)
+    GET  /voice/status, POST /voice/listen|stop|test, GET /weather (SMHI, cached), GET /backup/status, POST /backup/run, GET /sports, GET /sports/catalog, PUT /sports/leagues, PUT /sports/favorites, PUT /sports/pause, GET /news, GET /sports/logo/{file} (public)
     GET  /calendar/events?start=&end=, DELETE /calendar/events/{id}[?occurrence=YYYY-MM-DD], DELETE /reminders/{id}
 """
 
@@ -352,6 +352,29 @@ def _add_desktop_routes(app: FastAPI, core: "JarvisCore", authorized: list) -> N
             raise HTTPException(status_code=400, detail="Ogiltig ligalista.")
         core.set_sports_leagues(list(dict.fromkeys(leagues)))
         return {"leagues": leagues}
+
+    @app.put("/sports/favorites", dependencies=authorized)
+    def sports_favorites(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Favourite teams: [{"team": "Frölunda", "league": "shl"}, ...] (the star in the sports panel)."""
+        from services.sports_service import CATALOG
+
+        favorites = body.get("favorites")
+        if not isinstance(favorites, list) or len(favorites) > 20 or not all(
+                isinstance(f, dict) and f.get("league") in CATALOG and isinstance(f.get("team"), str) and 2 <= len(f["team"].strip()) <= 40
+                for f in favorites):
+            raise HTTPException(status_code=400, detail="Ogiltig lista med favoritlag.")
+        core.set_sports_favorites([{"team": f["team"].strip(), "league": f["league"]} for f in favorites])
+        return {"favorites": core.sports_favorites()}
+
+    @app.put("/sports/pause", dependencies=authorized)
+    def sports_pause(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Match mode on/off: {"paused": true} holds notifications back and hides live scores until 06:00."""
+        until = core.set_sports_pause(bool(body.get("paused")))
+        return {"paused": bool(body.get("paused")), "until": until}
+
+    @app.get("/news", dependencies=authorized)
+    def news() -> list[dict[str, Any]]:
+        return core.news.snapshot()
 
     @app.get("/sports/logo/{name}")
     def sports_logo(name: str) -> FileResponse:

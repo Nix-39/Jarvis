@@ -84,7 +84,7 @@ class JarvisOrchestrator:
         reminder_service: Optional[ReminderService] = None,
         calendar_service: Optional[CalendarService] = None,
         people_provider: Optional[Callable[[], list]] = None,
-        sports_leagues: Optional[tuple[Callable[[], list], Callable[[list], object]]] = None,
+        sports_control: Optional[object] = None,
     ) -> None:
         """
         Initialize the Orchestrator with infrastructure services, router, and registered agents.
@@ -95,8 +95,8 @@ class JarvisOrchestrator:
         :param vector_service: Optional VectorService instance. Self-initialized if None.
         :param web_service: Optional WebSearchService instance. Self-initialized if None.
         :param reminder_service: Optional ReminderService instance. Self-initialized if None.
-        :param sports_leagues: Optional (get, set) callables for the sports ticker's leagues;
-                               enables SportsAgent ("lägg till Premier League i resultaten").
+        :param sports_control: Optional object for the sports settings (ticker leagues, favourite
+                               teams, match mode); enables SportsAgent ("lägg till Frölunda i SHL som favoritlag").
         """
         logger.info("Initializing Jarvis Orchestrator pipeline...")
 
@@ -175,8 +175,8 @@ class JarvisOrchestrator:
             ),
         }
 
-        if sports_leagues is not None:
-            self.agent_registry["sports_agent"] = SportsAgent(*sports_leagues, memory_service=self.memory_service)
+        if sports_control is not None:
+            self.agent_registry["sports_agent"] = SportsAgent(sports_control, memory_service=self.memory_service)
 
         # 3. Initialize Planner with the validated agent registry
         self.planner = Planner(agent_registry=self.agent_registry)

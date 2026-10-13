@@ -25,7 +25,7 @@ export class VoiceControl {
   async init() {
     try {
       const s = await api('/voice/status');
-      this.enabled = !!s.enabled; this.btn.hidden = !this.enabled;
+      this.enabled = !!s.enabled; this.btn.hidden = !this.enabled; this.mic = s.microphone || '';
       this.setState(s.state || 'idle'); this.renderSettings();
       if (s.error) this.sys(`🎙 ${s.error}`);
     } catch { this.btn.hidden = true; }
@@ -66,7 +66,8 @@ export class VoiceControl {
       <div class="vrow"><span>Läs upp</span><select id="voiceMode">${MODES.map(([k, n]) => `<option value="${k}" ${v.speak === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
       <div class="vrow"><span>Tempo</span><input type="range" id="voiceRate" min="0.7" max="1.4" step="0.05" value="${v.rate ?? 1}"><span class="v">${Math.round((v.rate ?? 1) * 100)}%</span></div>
       <div class="vrow"><span>Tyst tid</span><input type="time" id="quietFrom" value="${esc(v.quiet_from || '22:00')}"><input type="time" id="quietTo" value="${esc(v.quiet_to || '07:00')}"></div>
-      <small class="vnote">Under tyst tid läses svar bara upp när du själv har pratat.</small>`;
+      <small class="vnote">Under tyst tid läses svar bara upp när du själv har pratat.</small>
+      ${this.mic ? `<small class="vnote">Mikrofon: ${esc(this.mic)}</small>` : ''}`;
     const save = (patch) => this.saveSettings({ voice: { ...(this.getSettings()?.voice || {}), ...patch } });
     $('wakeWord').onchange = (e) => save({ wake_word: e.target.checked });
     $('voiceName').onchange = (e) => save({ voice: e.target.value });

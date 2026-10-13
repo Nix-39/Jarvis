@@ -71,10 +71,11 @@ async function boot() {
   calendar.setPeople(state.settings.people);
   layout();
   $('lock').classList.add('gone');
-  await Promise.allSettled([loadHistory(), refreshStatus(), refreshCalendar(), refreshSystem(), loadBackground(), sports.refresh(), weather.refresh(), voice.init()]);
+  await Promise.allSettled([loadHistory(), refreshStatus(), refreshCalendar(), refreshSystem(), loadBackground(), sports.refresh(), sports.refreshNews(), weather.refresh(), voice.init()]);
   followEvents(onEvent, (up) => { if (!up) setStatus('Tappade kontakten med kärnan – försöker igen…'); else setStatus(null); });
   setInterval(refreshStatus, 15000); setInterval(refreshSystem, 2000); setInterval(refreshCalendar, 60000);
   setInterval(() => sports.refresh(), 60000);
+  setInterval(() => sports.refreshNews(), 600000);
   setInterval(() => weather.refresh(), 300000);
   setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('sv-SE'); }, 1000);
   requestAnimationFrame(loop);
@@ -325,6 +326,10 @@ function msg(who, text, meta, time, opts = {}) {
   m.innerHTML = `<small><span>${esc(meta)}</span><span>${time || now()}</span></small><div class="md">${md(text)}</div>`;
   add(m, opts.prepend); return m;
 }
+function newsLine(ev) {
+  const s = document.createElement('div'); s.className = 'sysmsg link'; s.textContent = `${ev.message} · ${ev.data?.feed || ''}`;
+  s.title = 'Öppna artikeln'; s.onclick = () => openExternal(ev.data?.url); add(s);
+}
 function step(text) { const s = document.createElement('div'); s.className = 'step'; s.innerHTML = `<b>›</b> ${esc(text)}`; add(s); }
 function sys(text) { const s = document.createElement('div'); s.className = 'sysmsg'; s.textContent = text; add(s); }
 
@@ -418,7 +423,10 @@ function onEvent(ev) {
       if (failed) toast('⚠️ BACKUP', ev.message);
       if (panel.classList.contains('open') && panel.textContent.includes('HVERGELMER')) openHvergelmer();
       break; }
-    case 'sports.updated': case 'sports.leagues': sports.refresh(); break;
+    case 'sports.updated': case 'sports.leagues': case 'sports.pause': sports.refresh(); break;
+    case 'sports.favorites': sports.refresh(); sports.refreshNews(); break;
+    case 'sports.favorite': sys(ev.message); toast('★ FAVORITLAG', ev.message); play('reply'); sports.refresh(); break;
+    case 'news.favorite': newsLine(ev); toast(`📰 NYHET · ${(d.team || '').toUpperCase()}`, ev.message.replace(/^📰 [^:]+: /, '')); sports.refreshNews(); break;
     case 'weather.updated': weather.refresh(); break;
     case 'voice.state': case 'voice.error': voice.onEvent(ev); break;
     case 'voice.wake': step(`${orch()}: hörde sitt namn – lyssnar`); core.pulseWell('mimer'); break;

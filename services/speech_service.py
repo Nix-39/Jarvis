@@ -140,6 +140,7 @@ class Segmenter:
         self.reset()
 
     def reset(self) -> None:
+        self.last = 0.0                           # level of the latest frame (for diagnostics)
         self.pre: deque = deque(maxlen=12)        # 360 ms before speech starts
         self.buf: list = []
         self.in_speech = False
@@ -151,7 +152,9 @@ class Segmenter:
         import numpy as np
 
         rms = float(np.sqrt(np.mean(frame * frame)) + 1e-9)
-        start_at, stop_at = max(self.floor * 3.0, 0.010), max(self.floor * 2.0, 0.007)
+        self.last = rms
+        level = Config.VOICE_MIC_LEVEL
+        start_at, stop_at = max(self.floor * 3.0, level), max(self.floor * 2.0, level * 0.7)
         if not self.in_speech:
             self.pre.append(frame)
             if rms > start_at:
@@ -165,7 +168,7 @@ class Segmenter:
         self.buf.append(frame)
         self.quiet = self.quiet + 1 if rms < stop_at else 0
         self.voiced += rms >= stop_at
-        if self.quiet >= 24 or len(self.buf) >= 500:            # 0.7 s of silence, or 15 s
+        if self.quiet >= 36 or len(self.buf) >= 500:            # 1.1 s of silence (room for a short pause), or 15 s
             audio, voiced = np.concatenate(self.buf), self.voiced
             self.reset()
             return audio if voiced >= 10 else None              # ignore clicks and knocks (< 0.3 s of sound)
@@ -246,6 +249,7 @@ class SpeechService:
         self.state = "off"
         self.error: Optional[str] = None
         self.device = ""
+        self.device_name = "standardmikrofonen"
         self.audio_ok = True
         self._stt = None
         self._wake = None
@@ -254,6 +258,8 @@ class SpeechService:
         self._model_lock = threading.Lock()
         self._armed_until = 0.0
         self._deaf_until = 0.0
+        self._push_to_talk = False                 # armed by the mic button/hotkey (not a follow-up)
+        self._peak = 0.0                           # loudest frame while armed
         self._segments: queue.Queue = queue.Queue(maxsize=3)
         self._speech: queue.Queue = queue.Queue(maxsize=8)
         self._stop_playback = threading.Event()
@@ -267,6 +273,15 @@ class SpeechService:
 
     def _name(self) -> str:
         return str((self.settings_provider() or {}).get("orchestrator_name") or "Nexus")
+
+    def _prompt(self) -> str:
+        """Words Whisper should expect: the assistant's and the family's names and common commands.
+        Without them it hears names it does not know as ordinary words ("Neo" -> "nio")."""
+        settings = self.settings_provider() or {}
+        names = [str(p.get("name", "")) for p in settings.get("people") or [] if p.get("name")]
+        family = f" {', '.join(names[:-1])} och {names[-1]}." if len(names) > 1 else (f" {names[0]}." if names else "")
+        return (f"Hej {self._name()}.{family} Lägg in i kalendern, påminn mig, lär dig, "
+                f"BVC, match, träning, favoritlag, resultaten.")
 
     def _volume(self) -> float:
         sound = (self.settings_provider() or {}).get("sound") or {}
@@ -293,6 +308,7 @@ class SpeechService:
             raise SpeechError(self.error or "Mikrofonen är inte tillgänglig.")
         self._stop_playback.set()                      # talking over the assistant stops her
         self._armed_until = time.monotonic() + seconds
+        self._push_to_talk, self._peak = True, 0.0
         self._set_state("listening")
         try:
             self._play(chime(max(self._volume(), 0.3)), SAMPLE_RATE, interruptible=False)
@@ -331,12 +347,12 @@ class SpeechService:
         """Transcribe an audio file (e.g. a Telegram voice message, OGG/Opus)."""
         model = self._load_stt()
         segments, _ = model.transcribe(io.BytesIO(data), language="sv", beam_size=5, vad_filter=True,
-                                       condition_on_previous_text=False)
+                                       condition_on_previous_text=False, initial_prompt=self._prompt())
         return _clean_transcript(" ".join(s.text for s in segments))
 
     def status(self) -> dict[str, Any]:
         return {"enabled": Config.VOICE_ENABLED, "state": self.state, "wake_word": self.wake_enabled(),
-                "device": self.device, "error": self.error, "voice": self._voice_settings().get("voice", "lisa"), "name": self._name()}
+                "device": self.device, "microphone": self.device_name, "error": self.error, "voice": self._voice_settings().get("voice", "lisa"), "name": self._name()}
 
     # ------------------------------------------------------------------
     # Threads
@@ -363,21 +379,28 @@ class SpeechService:
                 stop.wait(0.3)
                 continue
             try:
+                device = input_device()
                 with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=FRAME,
-                                    device=Config.VOICE_INPUT_DEVICE or None) as stream:
+                                    device=device) as stream:
                     self.error = None
+                    self.device_name = microphone_name(device)
+                    logger.info("Microphone open: %s (start level %.4f).", self.device_name, Config.VOICE_MIC_LEVEL)
                     while not stop.is_set() and (self.wake_enabled() or self._armed()):
                         block, _ = stream.read(FRAME)
                         if self.state == "listening" and not self._armed() and not segmenter.in_speech:
+                            if self._push_to_talk:
+                                self._nothing_heard()
                             self._set_state("idle")
                         if self.state in ("speaking", "thinking") or time.monotonic() < self._deaf_until:
                             segmenter.reset()
                             continue
                         audio = segmenter.push(np.asarray(block[:, 0], dtype="float32"))
+                        if self._armed():
+                            self._peak = max(self._peak, segmenter.last)
                         if audio is not None:
                             command = self._armed()
                             if command:
-                                self._armed_until = 0.0
+                                self._armed_until, self._push_to_talk = 0.0, False
                             try:
                                 self._segments.put_nowait((audio, command))
                             except queue.Full:
@@ -402,22 +425,25 @@ class SpeechService:
     def _handle_segment(self, audio, command: bool) -> None:
         if command:
             self._set_state("thinking")
-            text = self._transcribe(audio, self._load_stt(), beam=5)
+            text = self._transcribe(audio, self._load_stt(), beam=5, prompt=self._prompt())
             if text:
                 self._run_command(text)
             else:
+                logger.info("Speech piece of %.1f s gave no words.", len(audio) / SAMPLE_RATE)
+                event_bus.publish("voice.error", "voice", "Jag hörde ljud men uppfattade inga ord – prova igen, lite närmare mikrofonen.")
                 self._set_state("idle")
             return
         # Wake mode: check only the beginning of the piece with the small CPU model.
         name = self._name()
         head = self._transcribe(audio[: int(WAKE_SECONDS * SAMPLE_RATE)], self._load_wake(), beam=1, prompt=f"Hej {name}.")
         if not wake_re(name).match(head):
+            logger.debug("No wake phrase in a %.1f s speech piece (%d characters heard).", len(audio) / SAMPLE_RATE, len(head))
             return
         logger.info("Wake phrase heard.")
         event_bus.publish("voice.wake", "voice", f"Hej {name}")
         if len(audio) > (WAKE_SECONDS + 0.4) * SAMPLE_RATE:
             self._set_state("thinking")
-            rest = strip_wake(self._transcribe(audio, self._load_stt(), beam=5, prompt=f"Hej {name}."), name)
+            rest = strip_wake(self._transcribe(audio, self._load_stt(), beam=5, prompt=self._prompt()), name)
             if len(rest.split()) >= 2:
                 self._run_command(rest)
                 return
@@ -564,6 +590,18 @@ class SpeechService:
     def _armed(self) -> bool:
         return time.monotonic() < self._armed_until
 
+    def _nothing_heard(self) -> None:
+        """Push to talk ended without speech: tell the user why, with the level the microphone reached."""
+        self._push_to_talk = False
+        level = Config.VOICE_MIC_LEVEL
+        logger.info("Push to talk: no speech (loudest %.4f, start level %.4f, microphone %s).", self._peak, level, self.device_name)
+        if self._peak < level:
+            hint = (f"Mikrofonen ({self.device_name}) var för tyst ({self._peak:.3f}, behöver {level:.3f}). "
+                    "Höj mikrofonvolymen i Windows, välj en annan mikrofon med VOICE_INPUT_DEVICE eller sänk VOICE_MIC_LEVEL.")
+        else:
+            hint = "Jag hörde ljud men inget som lät som tal. Prova igen och börja prata direkt efter pipet."
+        event_bus.publish("voice.error", "voice", f"Hörde inget. {hint}")
+
     def _set_state(self, state: str) -> None:
         if state != self.state:
             self.state = state
@@ -574,6 +612,55 @@ class SpeechService:
             self.error = message
             logger.warning(message)
             event_bus.publish("voice.error", "voice", message)
+
+
+def input_device():
+    """VOICE_INPUT_DEVICE as sounddevice wants it: a number, part of a name, or None (Windows default)."""
+    value = Config.VOICE_INPUT_DEVICE
+    return int(value) if value.isdigit() else (value or None)
+
+
+def microphone_name(device) -> str:
+    try:
+        import sounddevice as sd
+
+        info = sd.query_devices(device if device is not None else sd.default.device[0], "input")
+        return str(info.get("name", "okänd mikrofon"))
+    except Exception:
+        return "okänd mikrofon"
+
+
+def mic_test(seconds: float = 6.0) -> int:
+    """Record a few seconds, show the levels and what was heard - for finding microphone problems."""
+    import numpy as np
+    import sounddevice as sd
+
+    device = input_device()
+    print(f"Mikrofon: {microphone_name(device)}   (VOICE_INPUT_DEVICE={Config.VOICE_INPUT_DEVICE or 'standard'})")
+    print(f"Säg till exempel \"Hej Nexus, vad är klockan?\" - spelar in {seconds:.0f} sekunder ...")
+    audio = sd.rec(int(seconds * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="float32", device=device)
+    sd.wait()
+    audio = audio[:, 0]
+    frames = audio[: len(audio) // FRAME * FRAME].reshape(-1, FRAME)
+    levels = np.sqrt(np.mean(frames * frames, axis=1))
+    for i in range(0, len(levels), 17):                                  # about every half second
+        part = levels[i:i + 17]
+        print(f"  {i * FRAME / SAMPLE_RATE:4.1f} s  {'#' * int(min(60, part.max() * 600)):<60} {part.max():.4f}")
+    quiet, loud = float(np.percentile(levels, 20)), float(levels.max())
+    print(f"Tyst bakgrund ca {quiet:.4f}, högsta nivå {loud:.4f}, startnivå VOICE_MIC_LEVEL={Config.VOICE_MIC_LEVEL:.4f}")
+    segmenter = Segmenter()
+    pieces = [p for p in (segmenter.push(f) for f in frames) if p is not None]
+    if loud < Config.VOICE_MIC_LEVEL:
+        print(f"=> För tyst. Höj mikrofonvolymen i Windows eller sätt VOICE_MIC_LEVEL={max(0.002, loud * 0.5):.3f} i .env.")
+    elif not pieces and not segmenter.in_speech:
+        print("=> Ljud men inget tal upptäcktes (för kort?). Prata minst en sekund.")
+    else:
+        print(f"=> Tal upptäcktes ({len(pieces) or 1} bit/ar). Skriver ut vad som hördes ...")
+    service = SpeechService(lambda: {}, on_command=print)
+    text = service._transcribe(audio, service._load_stt(), beam=5, prompt="Hej Nexus.")
+    print(f"Hörde: {text!r}")
+    print(f"Väckningsord hittat: {'ja' if wake_re('Nexus').match(text) else 'nej'}")
+    return 0
 
 
 def _download_voice(name: str) -> None:
@@ -593,7 +680,7 @@ def _download_voice(name: str) -> None:
 
 
 # ----------------------------------------------------------------------
-# CLI:  python -m services.speech_service --probe-cuda | --say "text" | --listen
+# CLI:  python -m services.speech_service --mic-test | --devices | --say "text" | --probe-cuda
 # ----------------------------------------------------------------------
 
 def _main(argv: list[str]) -> int:
@@ -617,8 +704,11 @@ def _main(argv: list[str]) -> int:
         import sounddevice as sd
 
         print(sd.query_devices())
+        print(f"Standardmikrofon: {microphone_name(None)}  - välj en annan med VOICE_INPUT_DEVICE=<nummer> i .env")
         return 0
-    print("Användning: python -m services.speech_service --say \"text\" | --devices | --probe-cuda")
+    if "--mic-test" in argv:
+        return mic_test()
+    print("Användning: python -m services.speech_service --mic-test | --devices | --say \"text\" | --probe-cuda")
     return 2
 
 

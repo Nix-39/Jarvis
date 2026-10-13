@@ -45,10 +45,11 @@ logger = get_logger("clients.desktop")
 APP_NAME = "Yggdrasil"
 BASE_URL = f"http://{Config.JARVIS_API_HOST}:{Config.JARVIS_API_PORT}"
 UI_URL = f"{BASE_URL}/app/"
-ICON_ICO = Config.UI_DIR / "assets" / "yggdrasil.ico"
-ICON_PNG = Config.UI_DIR / "assets" / "yggdrasil.png"
+ICON_ICO = Config.UI_DIR / "assets" / "app.ico"
+ICON_PNG = Config.UI_DIR / "assets" / "app.png"
 DESKTOP_PORT = int(os.getenv("DESKTOP_PORT", "47832"))   # single instance + "show" signal (localhost only)
-ALLOWED_LINK_HOSTS = {"www.espn.com", "espn.com", "www.shl.se", "www.hockeyallsvenskan.se", "www.thesportsdb.com", "mail.google.com", "calendar.google.com", "www.smhi.se"}
+ALLOWED_LINK_HOSTS = {"www.espn.com", "espn.com", "www.shl.se", "www.hockeyallsvenskan.se", "www.thesportsdb.com", "mail.google.com",
+                      "calendar.google.com", "www.smhi.se", "www.svt.se", "www.expressen.se", "www.aftonbladet.se"}
 
 LOADING_HTML = """<!doctype html><html><body style="margin:0;height:100vh;display:grid;place-items:center;background:#040404;
 font-family:Segoe UI,sans-serif;color:#a6987a;letter-spacing:.14em"><div style="text-align:center">
@@ -142,7 +143,7 @@ class DesktopApp:
             logger.warning("pystray/Pillow missing - no tray icon.")
             return
         try:
-            image = Image.open(ICON_PNG) if ICON_PNG.exists() else Image.new("RGB", (64, 64), (240, 180, 60))
+            image = Image.open(ICON_PNG) if ICON_PNG.exists() else Image.new("RGB", (64, 64), (255, 46, 196))
             menu = pystray.Menu(
                 pystray.MenuItem(f"Visa {APP_NAME}", lambda: self.show(), default=True),
                 pystray.Menu.SEPARATOR,

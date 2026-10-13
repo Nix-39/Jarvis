@@ -133,6 +133,10 @@ A results bar along the bottom of Yggdrasil: each league's latest round of resul
 - **Sources:** ESPN's public scoreboard JSON for most leagues (Allsvenskan, Premier League, Champions League, NHL, NBA ...; game days are read from the league calendar since the endpoint has no date ranges) and TheSportsDB's free API for SHL, HockeyAllsvenskan, SDHL, Damallsvenskan, Liiga, KHL and more. 38 leagues are built in, up to 30 can be shown. Both sit behind one `Game` model, so a provider can be swapped without touching the interface.
 - **Choose leagues by talking to Nexus:** "lägg till Premier League i resultaten", "ta bort NHL från resultaten", "vilka ligor finns?". Recognised by fixed patterns (no model), stored in `data/ui/settings.json`. Default: SHL and Allsvenskan.
 - **Privacy and safety:** only Jarvis Core talks to the internet – fixed hosts, timeouts and size limits; it refreshes every 10 minutes (every minute while a game is live) and caches the team logos locally (checked by magic bytes), so the interface itself makes no external requests.
+- **Favourite teams:** "lägg till Frölunda i SHL som favoritlag" (or the star next to a team in the panel). Their games are followed even when the league is not in the bar: a notification when a game starts, when the score changes and when it ends ("🏒 Slut: Frölunda 3–2 Luleå (ÖT) · SHL"), shown in the window and the log – never read aloud. A ★ Favoriter tab collects their games and news.
+- **News:** headlines from SVT Sport, Expressen, Sportbladet and ESPN (RSS, every 15 minutes) that mention a favourite team, as notifications and in the Favoriter tab; click to open the article.
+- **Match mode:** the button at the right of the bar or "pausa resultaten" holds all sports/news notifications back and hides live scores (so nothing gets ahead of a delayed broadcast) until 06:00 the next morning or "resultaten igen".
+- **SHL live (optional):** TheSportsDB's free key only has results after the games. With a free API-Sports key (`API_SPORTS_KEY`, 100 requests/day) Jarvis polls today's SHL games every two minutes while one is on (at most 90 requests a day) and shows the live score.
 
 ## Encrypted backup
 
@@ -209,6 +213,7 @@ jarvis/
 │   ├── install_core.ps1    # Autostart Jarvis Core at login (no window)
 │   ├── restart_core.ps1    # Restart (or -Stop) Jarvis Core, e.g. after editing .env
 │   ├── install_desktop.ps1 # Desktop + Start menu shortcut (AppUserModelID), tray app at login
+│   ├── make_icon.py        # Draws the app icon (magenta star in a hexagon) -> ui/assets
 │   └── check_autostart.ps1 # Verify that everything starts and runs
 ├── docker/searxng/         # Private search engine (docker-compose + settings)
 ├── ui/                     # Desktop interface (HTML/CSS/JS modules, icon) served by the core
@@ -237,7 +242,8 @@ jarvis/
 │   ├── prompt_loader.py
 │   ├── memory_service.py   # Short-term memory (SQLite)
 │   ├── backup_service.py   # Encrypted nightly backup of data/ (AES-256-GCM)
-│   ├── sports_service.py   # Sports results (ESPN + TheSportsDB), logo cache
+│   ├── sports_service.py   # Sports results (ESPN + TheSportsDB, SHL live via API-Sports), favourites, logo cache
+│   ├── news_service.py     # Headlines about favourite teams (SVT, Expressen, Sportbladet, ESPN RSS)
 │   ├── weather_service.py  # Weather from SMHI open data (SNOW1gv1)
 │   ├── speech_service.py   # Voice: KB-Whisper (listen), Piper (speak), "Hej Nexus"
 │   ├── calendar_service.py # Family calendar Urd (SQLite: bookings, shifts, matches)

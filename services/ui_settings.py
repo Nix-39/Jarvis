@@ -73,8 +73,15 @@ class Sound(BaseModel):
         return {k[:20]: max(0, min(100, int(v))) for k, v in list(value.items())[:20]}
 
 
+class Favorite(BaseModel):
+    team: str = Field(min_length=2, max_length=40)        # as the user says it: "Frölunda", "Vegas Golden Knights"
+    league: str = Field(pattern=r"^[a-z0-9_]{1,24}$")     # key in services.sports_service.CATALOG
+
+
 class Sports(BaseModel):
     leagues: list[str] = Field(default_factory=lambda: ["shl", "allsvenskan"])   # keys in services.sports_service.CATALOG
+    favorites: list[Favorite] = Field(default_factory=list, max_length=20)      # teams with notifications
+    paused_until: str = Field("", pattern=r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?)?$")   # "match mode" (local time), "" = off
 
     @field_validator("leagues")
     @classmethod
@@ -83,6 +90,17 @@ class Sports(BaseModel):
         for key in value[:30]:
             if re.fullmatch(r"[a-z0-9_]{1,24}", str(key)) and key not in out:
                 out.append(key)
+        return out
+
+    @field_validator("favorites")
+    @classmethod
+    def _unique_favorites(cls, value: list[Favorite]) -> list[Favorite]:
+        seen, out = set(), []
+        for fav in value:
+            key = (fav.team.strip().lower(), fav.league)
+            if key not in seen:
+                seen.add(key)
+                out.append(Favorite(team=" ".join(fav.team.split()), league=fav.league))
         return out
 
 

@@ -96,6 +96,11 @@ class Config:
     BACKUP_KEEP = int(os.getenv("BACKUP_KEEP", "14"))     # number of backups to keep
 
     # ------------------------------------------------------
+    # Sports: SHL live scores from API-Sports (optional, free plan 100 requests/day)
+    # ------------------------------------------------------
+    API_SPORTS_KEY = os.getenv("API_SPORTS_KEY", "").strip()                      # optional: SHL live scores (secret)
+
+    # ------------------------------------------------------
     # Voice (SpeechService, runs inside Jarvis Core - everything local)
     # ------------------------------------------------------
     VOICE_ENABLED = os.getenv("VOICE_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
@@ -104,6 +109,7 @@ class Config:
     VOICE_WAKE_MODEL = os.getenv("VOICE_WAKE_MODEL", "KBLab/kb-whisper-base")       # small, CPU: listens for "Hej Nexus"
     VOICE_DEVICE = os.getenv("VOICE_DEVICE", "auto").strip().lower()               # auto | cuda | cpu
     VOICE_INPUT_DEVICE = os.getenv("VOICE_INPUT_DEVICE", "").strip()               # microphone name/number, empty = default
+    VOICE_MIC_LEVEL = float(os.getenv("VOICE_MIC_LEVEL", "0.006"))                 # speech start level (RMS); lower = more sensitive
     VOICE_HOTKEY = os.getenv("VOICE_HOTKEY", "ctrl+alt+space")                      # push to talk
 
     # ------------------------------------------------------

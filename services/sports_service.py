@@ -12,6 +12,17 @@ League i resultaten"). A background thread in Jarvis Core refreshes the chosen
 leagues (every 10 minutes, every minute while a game is live) and caches the
 team logos locally, so the interface never talks to the internet itself.
 
+Favourite teams (`sports.favorites`) are followed in their leagues even when a
+league is not in the ticker: when one of their games starts, the score changes
+or it ends, a "sports.favorite" event is published (shown as a notification in
+the interface, never read aloud). "Match mode" (`sports.paused_until`) holds the
+notifications back and the interface hides live scores, so nothing gets ahead of
+a delayed broadcast. The results also feed the morning briefing.
+
+SHL live: TheSportsDB's free key has no live scores. With an API-Sports key
+(API_SPORTS_KEY in .env, free plan 100 requests/day) SHL games are polled every
+two minutes while one is on, and the live score is laid over TheSportsDB's data.
+
 Everything from these APIs is untrusted: only fixed hosts are contacted, sizes
 and timeouts are capped, logos are checked by their magic bytes, and the
 interface escapes every text it shows.
@@ -20,9 +31,12 @@ interface escapes every text it shows.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import threading
 import time
+import unicodedata
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -39,6 +53,11 @@ logger = get_logger(__name__)
 
 LOGO_DIR = Config.DATA_DIR / "cache" / "logos"
 API_HOSTS = {"site.api.espn.com", "www.thesportsdb.com"}
+APISPORTS_HOST = "v1.hockey.api-sports.io"
+APISPORTS_CACHE = Config.DATA_DIR / "cache" / "apisports.json"
+APISPORTS_DAILY_MAX = 90                 # free plan: 100 requests/day - keep a margin
+SHL_POLL_SECONDS = 110
+HOCKEY = {"shl", "hockeyallsvenskan", "sdhl", "nhl", "liiga", "khl", "del", "nationalleague"}
 LOGO_HOSTS = {"a.espncdn.com", "r2.thesportsdb.com", "www.thesportsdb.com"}
 SPORTSDB_KEY = "123"                     # TheSportsDB's free public key
 MAX_JSON_BYTES = 4 * 1024 * 1024
@@ -169,8 +188,13 @@ class LeagueResult:
 
 class SportsService:
     def __init__(self, leagues_provider: Callable[[], list[str]], logo_dir: Path = LOGO_DIR,
-                 client: Optional[httpx.Client] = None) -> None:
+                 client: Optional[httpx.Client] = None,
+                 favorites_provider: Optional[Callable[[], list[dict[str, str]]]] = None,
+                 paused_provider: Optional[Callable[[], bool]] = None,
+                 apisports_key: Optional[str] = None) -> None:
         self.leagues_provider = leagues_provider
+        self.favorites_provider = favorites_provider or (lambda: [])
+        self.paused_provider = paused_provider or (lambda: False)
         self.logo_dir = Path(logo_dir)
         self.logo_dir.mkdir(parents=True, exist_ok=True)
         self._client = client or httpx.Client(timeout=10, follow_redirects=False, headers={"User-Agent": USER_AGENT})
@@ -178,6 +202,11 @@ class SportsService:
         self._cache: dict[str, LeagueResult] = {}
         self._wake = threading.Event()
         self._bad_logos: set[str] = set()   # logos that failed this session - not retried
+        self._fav_state: dict[str, tuple] = {}          # game -> (state, home score, away score) last seen
+        self._fav_ready = False                         # no notifications for what is already there at start
+        self.feed: deque = deque(maxlen=40)             # favourite notifications, newest last
+        key = Config.API_SPORTS_KEY if apisports_key is None else apisports_key
+        self.shl_live = ShlLive(key, self._client) if key else None
 
     # ------------------------------------------------------------------
     # Public API
@@ -186,21 +215,55 @@ class SportsService:
     def leagues(self) -> list[str]:
         return [k for k in self.leagues_provider() if k in CATALOG]
 
+    def favorites(self) -> list[dict[str, str]]:
+        return [f for f in self.favorites_provider() if f.get("league") in CATALOG]
+
+    def fetch_keys(self) -> list[str]:
+        """The ticker's leagues plus the leagues of favourite teams."""
+        return list(dict.fromkeys(self.leagues() + [f["league"] for f in self.favorites()]))
+
     def snapshot(self) -> dict[str, Any]:
-        """Cached results for the chosen leagues (never blocks on the network)."""
+        """Cached results for the chosen leagues + favourite games (never blocks on the network)."""
+        favs = self.favorites()
+        mark = lambda g: {**asdict(g), "fav": is_favorite(g, favs)}
         with self._lock:
             out = []
             for key in self.leagues():
                 result = self._cache.get(key) or LeagueResult(key, CATALOG[key].name, CATALOG[key].web)
-                out.append(asdict(result))
-            return {"leagues": out}
+                out.append({**asdict(result), "games": [mark(g) for g in result.games]})
+            fav_games = sorted((g for r in self._cache.values() for g in r.games if is_favorite(g, favs)), key=lambda g: g.start)
+            return {
+                "leagues": out,
+                "favorites": [{**mark(g), "league_name": CATALOG[g.league].name} for g in fav_games],
+                "favorite_teams": favs,
+                "feed": list(self.feed)[-20:],
+                "paused": self.paused_provider(),
+                "live_note": self.shl_live.note if self.shl_live else "",
+            }
+
+    def team_leagues(self, team: str) -> list[str]:
+        """Leagues among the fetched ones where a team with this name plays (for "lägg till X som favoritlag")."""
+        wanted = fold(team)
+        with self._lock:
+            return [key for key, r in self._cache.items()
+                    if wanted and any(wanted in fold(t.name) or wanted == fold(t.short) for g in r.games for t in (g.home, g.away))]
+
+    def favorite_results(self, since: datetime) -> list[dict[str, Any]]:
+        """Finished favourite games that started after `since` (for the morning briefing)."""
+        favs = self.favorites()
+        with self._lock:
+            games = [g for r in self._cache.values() for g in r.games
+                     if g.state == "post" and is_favorite(g, favs) and _parse_utc(g.start) >= since]
+        return [{**asdict(g), "league_name": CATALOG[g.league].name, "text": result_text(g)} for g in sorted(games, key=lambda g: g.start)]
 
     def refresh(self, keys: Optional[list[str]] = None) -> None:
         changed = False
-        for key in keys or self.leagues():
+        for key in keys or self.fetch_keys():
             league = CATALOG[key]
             try:
                 games = self._fetch_espn(league) if league.espn else self._fetch_sportsdb(league)
+                if key == "shl" and self.shl_live is not None:
+                    self.shl_live.overlay(games)
                 result = LeagueResult(key, league.name, league.web, games, datetime.now(timezone.utc).isoformat(timespec="seconds"))
             except Exception as exc:
                 logger.warning("Sports refresh failed for %s: %s", key, exc)
@@ -213,6 +276,33 @@ class SportsService:
                 self._cache[key] = result
         if changed:
             event_bus.publish("sports.updated", "sports", "Nya sportresultat")
+        self._check_favorites()
+
+    def _check_favorites(self) -> None:
+        """Notify when a favourite team's game starts, the score changes or it ends (not in match mode)."""
+        favs, paused = self.favorites(), self.paused_provider()
+        with self._lock:
+            games = [g for r in self._cache.values() for g in r.games if is_favorite(g, favs)]
+        for g in games:
+            key = f"{g.league}:{g.id}"
+            now = (g.state, g.home.score, g.away.score)
+            before = self._fav_state.get(key)
+            self._fav_state[key] = now
+            if before is None or not self._fav_ready or paused or before == now:
+                continue
+            kind = ""
+            if now[0] == "post" and before[0] != "post":
+                kind = "final"
+            elif now[0] == "in" and before[0] == "pre":
+                kind = "start"
+            elif now[0] == "in" and before[0] == "in" and now[1:] != before[1:]:
+                kind = "score"
+            if kind:
+                text = notice_text(g, kind)
+                self.feed.append({"time": datetime.now(timezone.utc).isoformat(timespec="seconds"), "kind": kind,
+                                  "text": text, "league": g.league, "game": g.id})
+                event_bus.publish("sports.favorite", "sports", text, kind=kind, league=g.league, game=g.id)
+        self._fav_ready = True
 
     def wake(self) -> None:
         """Refresh now (e.g. after a league was added)."""
@@ -226,7 +316,8 @@ class SportsService:
                 self.refresh()
             except Exception as exc:   # never let the thread die
                 logger.exception("Sports thread error: %s", exc)
-            live = any(g.state == "in" for r in list(self._cache.values()) for g in r.games)
+            live = any(g.state == "in" for r in list(self._cache.values()) for g in r.games) or \
+                (self.shl_live is not None and self.shl_live.window(self._cache.get("shl")))
             self._wake.clear()
             if self._wait(stop, LIVE_REFRESH_SECONDS if live else REFRESH_SECONDS):
                 return
@@ -463,3 +554,181 @@ def _short(name: str) -> str:
         return SHL_SHORT[name]
     words = [w for w in name.split() if w.upper() not in ("IF", "IK", "HC", "BK", "HF", "HK", "AIK", "FF", "FC", "SK")]
     return (" ".join(words) or name)[:24]
+
+
+# ----------------------------------------------------------------------
+# Favourites
+# ----------------------------------------------------------------------
+
+def fold(text: str) -> str:
+    """'Frölunda HC' -> 'frolundahc': lower case, no accents, letters and digits only."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", str(text or "")) if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]", "", plain.lower())
+
+
+def is_favorite(game: Game, favorites: list[dict[str, str]]) -> bool:
+    for fav in favorites:
+        if fav.get("league") != game.league:
+            continue
+        wanted = fold(fav.get("team", ""))
+        if wanted and any(wanted in fold(t.name) or wanted == fold(t.short) for t in (game.home, game.away)):
+            return True
+    return False
+
+
+def sport_icon(league: str) -> str:
+    return "🏒" if league in HOCKEY else "🏈" if league == "nfl" else "🏀" if league in ("nba", "wnba") else \
+        "⚾" if league == "mlb" else "⚽"
+
+
+def result_text(g: Game) -> str:
+    extra = " (ÖT)" if "ÖT" in g.status else " (str)" if "str" in g.status else ""
+    return f"{g.home.short} {g.home.score or 0}–{g.away.score or 0} {g.away.short}{extra}"
+
+
+def notice_text(g: Game, kind: str) -> str:
+    icon, league = sport_icon(g.league), CATALOG[g.league].name
+    if kind == "start":
+        return f"{icon} {g.home.short} – {g.away.short} har börjat ({league})"
+    if kind == "final":
+        return f"{icon} Slut: {result_text(g)} · {league}"
+    goal = "Mål! " if g.league in HOCKEY or CATALOG[g.league].espn.startswith("soccer") else "Ny ställning: "
+    return f"{icon} {goal}{g.home.short} {g.home.score or 0}–{g.away.score or 0} {g.away.short}" + (f" · {g.status}" if g.status else "")
+
+
+# ----------------------------------------------------------------------
+# SHL live scores from API-Sports (optional, needs API_SPORTS_KEY)
+# ----------------------------------------------------------------------
+
+APISPORTS_STATUS = {  # short code -> (state, Swedish status)
+    "NS": ("pre", ""), "P1": ("in", "P1"), "P2": ("in", "P2"), "P3": ("in", "P3"), "OT": ("in", "ÖT"),
+    "PT": ("in", "Straffar"), "BT": ("in", "Paus"), "FT": ("post", "Slut"), "AOT": ("post", "Slut (ÖT)"),
+    "AP": ("post", "Slut (str)"), "AW": ("post", "Slut"),
+}
+GENERIC_WORDS = {"if", "ik", "hc", "bk", "hf", "hk", "aik", "sk", "ff", "fc"}
+
+
+def team_key(name: str) -> str:
+    """Comparable key for one SHL team across providers: first real word, folded, 5 letters."""
+    words = [w for w in re.split(r"[\s-]+", str(name or "")) if fold(w) and fold(w) not in GENERIC_WORDS]
+    return fold(words[0])[:5] if words else fold(name)[:5]
+
+
+class ShlLive:
+    """Polls API-Sports for today's SHL games while one is on and lays the live score over the games."""
+
+    def __init__(self, key: str, client: httpx.Client, cache_file: Path = APISPORTS_CACHE) -> None:
+        self._key = key
+        self._client = client
+        self._cache_file = Path(cache_file)
+        self._last = 0.0
+        self._latest: dict[str, dict[str, Any]] = {}
+        self._day = ""
+        self._used = 0
+        self._off_until = ""          # local date - after a plan/quota error
+        self.note = ""
+
+    @staticmethod
+    def window(result: Optional[LeagueResult]) -> bool:
+        """True while an SHL game could be on (5 min before the start until 4 h after)."""
+        if result is None:
+            return False
+        now = datetime.now(timezone.utc)
+        return any(g.state != "post" and _parse_utc(g.start) - timedelta(minutes=5) <= now <= _parse_utc(g.start) + timedelta(hours=4)
+                   for g in result.games)
+
+    def overlay(self, games: list[Game]) -> None:
+        self._apply_all(games)                       # what we already know (polls are 2 min apart)
+        if self.window(LeagueResult("shl", "SHL", "", games)) and time.monotonic() - self._last >= SHL_POLL_SECONDS:
+            self._poll()
+            self._apply_all(games)
+
+    def _apply_all(self, games: list[Game]) -> None:
+        for g in games:
+            found = self._latest.get(team_key(g.home.name))
+            if found and str(found.get("date", ""))[:10] == g.start[:10] or found and abs(
+                    (_parse_utc(str(found.get("date"))) - _parse_utc(g.start)).total_seconds()) < 6 * 3600:
+                self._apply(g, found)
+
+    def _poll(self) -> None:
+        today = datetime.now().date().isoformat()
+        if self._day != today:
+            self._day, self._used = today, 0
+        if self._off_until and self._off_until >= today:
+            return
+        if self._used >= APISPORTS_DAILY_MAX:
+            self.note = "Dagens kvot för SHL live är slut – resultaten kommer efter matcherna."
+            return
+        self._last = time.monotonic()
+        try:
+            league_id, season = self._league()
+            data = self._get("/games", {"league": str(league_id), "season": str(season), "date": today, "timezone": "Europe/Stockholm"})
+        except Exception as exc:
+            logger.warning("SHL live (API-Sports) failed: %s", exc)
+            return
+        self._latest = {}
+        for item in data.get("response") or []:
+            try:
+                self._latest[team_key(item["teams"]["home"]["name"])] = item
+            except (KeyError, TypeError):
+                continue
+        self.note = ""
+
+    def _apply(self, game: Game, item: dict[str, Any]) -> None:
+        code = str((item.get("status") or {}).get("short") or "").upper()
+        if code not in APISPORTS_STATUS:
+            return
+        state, status = APISPORTS_STATUS[code]
+        scores = item.get("scores") or {}
+        hs, as_ = scores.get("home"), scores.get("away")
+        if state != "pre" and (hs is None or as_ is None):
+            return
+        game.state, game.status = state, status
+        game.home.score = None if state == "pre" else str(int(hs))
+        game.away.score = None if state == "pre" else str(int(as_))
+        game.home.winner = state == "post" and int(hs) > int(as_)
+        game.away.winner = state == "post" and int(as_) > int(hs)
+
+    def _league(self) -> tuple[int, int]:
+        """SHL's league id and current season at API-Sports, looked up once a month and cached."""
+        try:
+            cached = json.loads(self._cache_file.read_text(encoding="utf-8"))
+            if cached.get("checked", "") >= (datetime.now().date() - timedelta(days=30)).isoformat():
+                return int(cached["league"]), int(cached["season"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        data = self._get("/leagues", {"country": "Sweden"})
+        for item in data.get("response") or []:
+            if str(item.get("name", "")).strip().upper() == "SHL":
+                seasons = item.get("seasons") or []
+                current = next((s for s in seasons if s.get("current")), seasons[-1] if seasons else {})
+                league_id, season = int(item["id"]), int(current.get("season"))
+                self._cache_file.parent.mkdir(parents=True, exist_ok=True)
+                self._cache_file.write_text(json.dumps({"league": league_id, "season": season,
+                                                        "checked": datetime.now().date().isoformat()}), encoding="utf-8")
+                return league_id, season
+        raise ValueError("SHL not found at API-Sports")
+
+    def _get(self, path: str, params: dict[str, str]) -> dict[str, Any]:
+        self._used += 1
+        url = f"https://{APISPORTS_HOST}{path}"
+        with self._client.stream("GET", url, params=params, headers={"x-apisports-key": self._key}) as response:
+            response.raise_for_status()
+            remaining = response.headers.get("x-ratelimit-requests-remaining")
+            body = b""
+            for chunk in response.iter_bytes():
+                body += chunk
+                if len(body) > MAX_JSON_BYTES:
+                    raise ValueError("response too large")
+        data = httpx.Response(200, content=body).json()
+        data = data if isinstance(data, dict) else {}
+        errors = data.get("errors")
+        if errors:   # e.g. {"plan": "Free plans do not have access to this season"} or a bad key
+            message = "; ".join(f"{v}" for v in (errors.values() if isinstance(errors, dict) else errors))[:200]
+            self._off_until = datetime.now().date().isoformat()
+            self.note = f"SHL live är avstängt idag: {message}"
+            logger.warning("API-Sports refused the request: %s", message)
+            raise ValueError(message)
+        if remaining is not None and remaining.isdigit() and int(remaining) < 3:
+            self._off_until = datetime.now().date().isoformat()
+        return data

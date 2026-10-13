@@ -401,3 +401,22 @@ body.no-sports #stage{bottom:0}
 .well:hover span,.well:hover small,.well.alert span{opacity:1;transform:none}
 .well .badge{opacity:1}
 .well.alert span{color:#ffb35c}
+/* favourite teams, news and match mode */
+.game.fav b{color:#fff}.game .star{font-style:normal;color:var(--accent);margin-right:5px;text-shadow:0 0 6px var(--glow)}
+#matchBtn{flex:none;height:100%;display:flex;align-items:center;gap:7px;padding:0 14px;border:0;border-left:1px solid var(--dim);background:transparent;color:var(--muted);font:700 11px var(--font);letter-spacing:.16em;cursor:pointer;transition:.2s}
+#matchBtn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round}
+#matchBtn:hover{color:#fff}#matchBtn.on{color:#fff;background:rgba(255,46,196,.22);box-shadow:inset 0 0 14px rgba(255,46,196,.35)}
+#matchBtn.on span::after{content:" PÅ"}
+.fstar{background:none;border:0;color:var(--muted);font-size:15px;cursor:pointer;padding:0 6px;opacity:.55;transition:.15s}
+.fstar:hover{opacity:1;color:#fff}.fstar.on{color:var(--accent);opacity:1;text-shadow:0 0 6px var(--glow)}
+.card.fav{border-color:rgba(255,46,196,.35)}
+.sc-tabs .favtab{border-color:var(--accent);color:#fff}.sc-tabs .paused{font-size:11px;color:var(--accent);letter-spacing:.08em;margin-left:8px}
+.sc-grid.withside{grid-template-columns:repeat(auto-fill,minmax(270px,1fr)) }
+.favside{grid-column:1/-1;border-top:1px solid var(--dim);padding-top:10px;margin-top:4px}
+.favside h5{font:700 10.5px var(--font);letter-spacing:.22em;color:var(--muted);margin:8px 0 8px}
+.ftag{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--dim);border-radius:14px;padding:3px 6px 3px 11px;margin:0 6px 6px 0;font-size:12.5px}
+.ftag small{color:var(--muted);font-size:10.5px}.ftag button{background:none;border:0;color:var(--muted);cursor:pointer;font-size:11px}.ftag button:hover{color:#e05a4a}
+.nitem{padding:7px 9px;border-radius:6px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04)}.nitem:hover{background:rgba(255,46,196,.08)}
+.nitem b{display:block;font-weight:600;font-size:13px}.nitem small{color:var(--muted);font-size:11px}
+.lnote{font-size:12px;color:var(--muted);margin:4px 0 8px}
+.sysmsg.link{cursor:pointer}.sysmsg.link:hover{border-color:var(--accent)}
