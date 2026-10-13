@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import re
 import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
@@ -128,12 +129,10 @@ def create_app(
 
     authorized = [Depends(require_token)]
 
-    ui_version = _ui_version()
-
     @app.get("/health")
     def health() -> dict[str, Any]:
-        # "ui" changes when the interface files change, so an open window reloads itself.
-        return {"status": "ok", "ready": core.ready, "ui": ui_version}
+        # "ui" changes when the interface files change (also while the core runs), so an open window reloads itself.
+        return {"status": "ok", "ready": core.ready, "ui": _ui_version()}
 
     @app.get("/status", dependencies=authorized)
     def status() -> dict[str, Any]:
@@ -215,15 +214,22 @@ class _RevalidatingStaticFiles(StaticFiles):
         return response
 
 
+_ui_cache: dict[str, Any] = {"at": 0.0, "value": ""}
+
+
 def _ui_version() -> str:
-    """Short fingerprint of the interface files (names, sizes, modification times)."""
+    """Short fingerprint of the interface files (names, sizes, modification times), re-read at most every 5 s."""
+    now = time.monotonic()
+    if _ui_cache["value"] and now - _ui_cache["at"] < 5:
+        return _ui_cache["value"]
     digest = hashlib.sha256()
     if Config.UI_DIR.is_dir():
         for path in sorted(Config.UI_DIR.rglob("*")):
             if path.is_file():
                 stat = path.stat()
                 digest.update(f"{path.relative_to(Config.UI_DIR)}|{stat.st_size}|{stat.st_mtime_ns}".encode())
-    return digest.hexdigest()[:12]
+    _ui_cache.update(at=now, value=digest.hexdigest()[:12])
+    return _ui_cache["value"]
 
 
 def _add_desktop_routes(app: FastAPI, core: "JarvisCore", authorized: list) -> None:

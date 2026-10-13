@@ -36,10 +36,13 @@ export function rangeShort(e) {
   return sameDay(e.date, last) ? shortDay(e.date) : `${shortDay(e.date)} – ${shortDay(last)}`;
 }
 /** Compact 'when' for lists: 'Fre 19:15', 'Tor–Sön', 'Nu–Sön'. */
+/** 'Idag', 'Imorgon', 'Tor' this week - and 'Tor 22/10' further ahead, so 30 days stay readable. */
+export const nearLabel = (d) => (d < addDays(today0(), 7) ? dayLabel(d) : `${WD[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`);
 export function whenLabel(e) {
-  if (!e.allDay) return `${dayLabel(e.date)} ${timeSpan(e)}`;
-  const last = lastDay(e), first = e.date < today0() ? 'Nu' : dayLabel(e.date);
-  return sameDay(e.date, last) ? `${first} heldag` : `${first}–${WD[last.getDay()]}`;
+  if (!e.allDay) return `${nearLabel(e.date)} ${timeSpan(e)}`;
+  const last = lastDay(e), first = e.date < today0() ? 'Nu' : nearLabel(e.date);
+  const end = last < addDays(today0(), 7) ? WD[last.getDay()] : `${last.getDate()}/${last.getMonth() + 1}`;
+  return sameDay(e.date, last) ? `${first} heldag` : `${first}–${end}`;
 }
 /** Title with the person's name in front, unless the title already says who it is. */
 const labeled = (title, name) => (name && !String(title).toLowerCase().includes(name.toLowerCase()) ? `${name}: ${title}` : title);

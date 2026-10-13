@@ -234,21 +234,22 @@ async function openHvergelmer() {
 }
 
 /* =====================================================================
-   Family nodes (rolling 7 days)
+   Family nodes (rolling 30 days: as many as fit, then "+N till")
    ===================================================================== */
 const photoCache = {};
+const FAMILY_DAYS = 30;   // how far ahead the family column and person panel look
 function renderPeople() {
   const people = state.settings?.people || [], box = $('people'); if (!people.length) { box.innerHTML = ''; return; }
   box.innerHTML = people.map((p) => `<div class="person" data-person="${p.id}" style="--pc:${p.color}"><div class="pnode"><b>${esc(p.name[0] || '?')}</b></div><div class="pinfo"><div class="pname">${esc(p.name)}</div><div class="plist"></div></div></div>`).join('');
   const per = box.clientHeight / people.length, fit = Math.max(1, Math.floor((per - 30) / 19));
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
   box.querySelectorAll('.person').forEach((el) => {
-    const pid = el.dataset.person, ev = calendar.upcoming(pid, 7), list = el.querySelector('.plist');
+    const pid = el.dataset.person, ev = calendar.upcoming(pid, FAMILY_DAYS), list = el.querySelector('.plist');
     el.style.height = per + 'px';
     el.classList.toggle('soon', ev.some((e) => { if (e.allDay || !sameDay(e.date, today0())) return false; const [h, m] = e.start.split(':').map(Number); const t = h * 60 + m; return t >= nowMin && t - nowMin <= 120; }));
     const show = ev.length > fit ? fit - 1 : fit;
     list.innerHTML = ev.length ? ev.slice(0, show).map((e) => `<div class="pev${sameDay(e.date, today0()) ? ' today' : ''}"><small>${whenLabel(e)}</small>${esc(e.short || e.title)}</div>`).join('') + (ev.length > show ? `<div class="pmore">+${ev.length - show} till</div>` : '')
-      : '<div class="pev none">Inget de närmaste 7 dagarna</div>';
+      : `<div class="pev none">Inget de närmaste ${FAMILY_DAYS} dagarna</div>`;
     el.onclick = (e) => { e.stopPropagation(); personPanel(pid); };
     const node = el.querySelector('.pnode'), b = node.querySelector('b');
     if (photoCache[pid]) { b.style.backgroundImage = `url(${photoCache[pid]})`; b.classList.add('photo'); }
@@ -267,10 +268,10 @@ async function uploadPhoto(pid, file) {
   catch (e) { sys(`Kunde inte spara bilden: ${e.message}`); }
 }
 function personPanel(pid) {
-  const p = state.settings.people.find((x) => x.id === pid), ev = calendar.upcoming(pid, 7);
-  openPanel(`<h3><span style="color:${p.color}">${esc(p.name.toUpperCase())} · 7 DAGAR</span><button data-close>✕</button></h3>` +
+  const p = state.settings.people.find((x) => x.id === pid), ev = calendar.upcoming(pid, FAMILY_DAYS);
+  openPanel(`<h3><span style="color:${p.color}">${esc(p.name.toUpperCase())} · ${FAMILY_DAYS} DAGAR</span><button data-close>✕</button></h3>` +
     (ev.length ? ev.map((e, i) => `<div class="chk pitem" data-i="${i}" style="border-left:3px solid ${p.color};cursor:pointer"><div>${esc(e.short || e.title)}<small>${e.allDay ? rangeShort(e) : `${dayLabel(e.date)} ${e.date.getDate()} ${MON[e.date.getMonth()]} · ${timeSpan(e)}`}${e.recurrenceLabel ? ' · ↻' : ''}${e.location ? ' · ' + esc(e.location) : ''}</small></div></div>`).join('')
-      : '<div class="chk"><div>Inget planerat de närmaste 7 dagarna.</div></div>') +
+      : `<div class="chk"><div>Inget planerat de närmaste ${FAMILY_DAYS} dagarna.</div></div>`) +
     '<button class="cbtn openbtn" id="openCal">Öppna kalender</button>');
   $('openCal').onclick = (e) => { e.stopPropagation(); closePanel(); calendar.open(pid); };
   panel.querySelectorAll('.pitem').forEach((el) => el.onclick = () => {
